@@ -1,0 +1,6 @@
+Riseklix v36
+- Built from v35.
+- Moved the Riseklix OS modal to document.body on open so it cannot be clipped by the hero artwork container.
+- Reduced desktop OS width/height again and shifted it slightly left.
+- Kept mobile/tablet rules intact and safe.
+- ZIP validated after build.

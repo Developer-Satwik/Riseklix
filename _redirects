@@ -1,0 +1,17 @@
+/services   /services.html   200
+/services/  /services.html   200
+/work       /work.html       200
+/work/      /work.html       200
+/about      /about.html      200
+/about/     /about.html      200
+/contact    /contact.html    200
+/contact/   /contact.html    200
+/privacy    /privacy.html    200
+/privacy/   /privacy.html    200
+/terms      /terms.html      200
+/terms/     /terms.html      200
+/sitemap    /sitemap.html    200
+/sitemap/   /sitemap.html    200
+/404       /404.html       200
+/404/      /404.html       200
+/*          /404.html        404
