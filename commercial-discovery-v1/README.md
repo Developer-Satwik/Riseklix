@@ -18,6 +18,7 @@ Fresh product workspace for the Riseklix Commercial Discovery application.
 - Next.js 16 + React 19 + TypeScript
 - Supabase Auth + Postgres + Row Level Security
 - Server-first App Router data access
+- Supabase Edge Functions for authenticated research jobs
 - Core objects preserve company profiles, buyer intents, competitor relationships, prompt versions, observations, evidence, findings, blueprints and rechecks.
 
 ## Local setup
@@ -45,10 +46,22 @@ Implemented:
 - Workspace and project isolation
 - Password auth shell
 - Project creation persisted to Supabase
-- Company Profile approval boundary
+- Versioned Company Intelligence approval boundary
+- Authenticated first-party research job with bounded homepage capture + evidence hashing
+- Persistent research jobs and human-review queue
+- Editable Company Intelligence review + approval
+- Buyer Situation candidate review, approve/reject flow and internal QA entry path
 - Data-backed Overview / Buyer Situations / Why / Fixes / Recheck screens
 - Versioned benchmark/evidence architecture
+- Dependency security gate, TypeScript, ESLint and production-build CI
 
-Next backend milestone: company research worker — crawl first-party site + outside-in evidence, preserve sources, produce a draft Company Intelligence Profile, and route low-confidence claims to review before Buyer Intent generation.
+## Next milestones
+
+1. Expand Company Intelligence from homepage seed to controlled first-party crawl + outside-in evidence.
+2. Add the differentiated Buyer Intent Suggestor against the approved Company Intelligence Profile.
+3. Add intent-specific competitor discovery with controlled L0→L5 constraint relaxation.
+4. Generate prompt expressions only after intent approval.
+5. Connect declared live model-observation providers and preserve raw answers/citations.
+6. Build the evidence-calibrated WHY evaluator and Blueprint generator.
 
 This directory is intentionally isolated from the existing Riseklix marketing site.
