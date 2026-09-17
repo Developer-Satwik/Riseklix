@@ -6,6 +6,7 @@ import './prompts.css'
 import './benchmarks.css'
 import './observations.css'
 import './why.css'
+import './fixes.css'
 
 export const metadata: Metadata = {
   title: 'Riseklix — AI Commercial Discovery',
