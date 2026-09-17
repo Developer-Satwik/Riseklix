@@ -1,16 +1,27 @@
 import { createClient } from '@/lib/supabase/server'
 import { addIntentCandidate, approveIntent, rejectIntent } from './actions'
 import { generateBuyerIntents } from './generate-actions'
+import { discoverCompetitors } from './competitor-actions'
+
+function record(value: unknown) {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
+}
+
+function evidenceItems(value: unknown) {
+  if (!Array.isArray(value)) return []
+  return value.map(record).filter((item) => typeof item.url === 'string')
+}
 
 export default async function BuyerSituationsPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const { id } = await params
   const query = await searchParams
   const supabase = await createClient()
 
-  const [{ data: intents }, { data: profile }, { data: latestJob }] = await Promise.all([
-    supabase.from('buyer_intents').select('id,intent_key,title,buyer,job_to_be_done,provenance,provenance_reason,priority,status,commercial_model,geography,constraints,required_capabilities').eq('project_id', id).order('created_at'),
+  const [{ data: intents }, { data: profile }, { data: latestJob }, { data: competitors }] = await Promise.all([
+    supabase.from('buyer_intents').select('id,intent_key,title,buyer,job_to_be_done,provenance,provenance_reason,priority,status,commercial_model,geography,constraints,required_capabilities,purchase_stage,language_policy,source_refs').eq('project_id', id).order('created_at'),
     supabase.from('company_profile_versions').select('status,company_name').eq('project_id', id).eq('is_current', true).single(),
     supabase.from('research_jobs').select('id,status,stage,progress,output,error,created_at').eq('project_id', id).eq('job_type', 'intent_generation').order('created_at', { ascending: false }).limit(1).maybeSingle(),
+    supabase.from('competitor_candidates').select('id,buyer_intent_id,company_name,domain,relationship,discovery_layer,status,matched_constraints,relaxed_constraints,evidence,evidence_strength,rationale,is_current').eq('project_id', id).eq('is_current', true).order('discovery_layer').order('company_name'),
   ])
 
   const error = typeof query.error === 'string' ? query.error : null
@@ -25,7 +36,7 @@ export default async function BuyerSituationsPage({ params, searchParams }: { pa
         <div>
           <div className="eyebrow">WHERE SHOULD WE BE CONSIDERED?</div>
           <h1>Buyer Situations</h1>
-          <p>Riseklix models buyer + job + constraints + capabilities + geography + commercial model first. Prompt expressions and competitors are generated underneath an approved intent rather than becoming the product itself.</p>
+          <p>Riseklix models buyer + job + constraints + capabilities + geography + commercial model first. Competitor sets are discovered separately for each approved situation, with evidence and an explicit constraint-relaxation ladder.</p>
         </div>
       </section>
 
@@ -36,7 +47,7 @@ export default async function BuyerSituationsPage({ params, searchParams }: { pa
         <div>
           <div className="eyebrow">BUYER INTENT ENGINE</div>
           <h2>{unlocked ? 'Company context approved. Intent generation is unlocked.' : 'Approve Company Intelligence first.'}</h2>
-          <p>{unlocked ? `${approvedCount} approved · ${candidateCount} awaiting review. The Suggestor uses approved company facts and preserved source evidence, then leaves every generated intent as a candidate until you approve it.` : 'Riseklix will not generate confident-looking prompts from an unapproved understanding of the business.'}</p>
+          <p>{unlocked ? `${approvedCount} approved · ${candidateCount} awaiting review. AI-suggested situations remain candidates until you approve them.` : 'Riseklix will not generate confident-looking prompts from an unapproved understanding of the business.'}</p>
           {latestJob && <div className="job-line"><span>{latestJob.status}</span><span>{latestJob.stage ?? 'queued'}</span><span>{latestJob.progress}%</span></div>}
         </div>
         {unlocked ? (
@@ -49,32 +60,87 @@ export default async function BuyerSituationsPage({ params, searchParams }: { pa
 
       {!!intents?.length && (
         <div className="intent-list review-intents">
-          {intents.map((intent) => (
-            <article key={intent.id} className={intent.status === 'rejected' ? 'intent-rejected' : ''}>
-              <div className="intent-meta"><span>{intent.intent_key}</span><span>{intent.provenance}</span><span>{intent.priority}</span><span>{intent.status}</span></div>
-              <h2>{intent.title}</h2>
-              <p>{intent.job_to_be_done}</p>
-              <div className="intent-facts">
-                <div><small>Buyer</small><strong>{intent.buyer || 'Not specified'}</strong></div>
-                <div><small>Commercial model</small><strong>{intent.commercial_model || 'Not specified'}</strong></div>
-                <div><small>Geography</small><strong>{intent.geography && typeof intent.geography === 'object' && !Array.isArray(intent.geography) && 'primary' in intent.geography ? String(intent.geography.primary) : 'Not specified'}</strong></div>
-              </div>
-              <details className="intent-details">
-                <summary>Why this situation exists</summary>
-                <p>{intent.provenance_reason || 'No provenance rationale recorded.'}</p>
-                <div className="intent-detail-columns">
-                  <div><small>Constraints</small><pre>{JSON.stringify(intent.constraints ?? [], null, 2)}</pre></div>
-                  <div><small>Required capabilities</small><pre>{JSON.stringify(intent.required_capabilities ?? [], null, 2)}</pre></div>
+          {intents.map((intent) => {
+            const intentCompetitors = (competitors ?? []).filter((competitor) => competitor.buyer_intent_id === intent.id)
+            return (
+              <article key={intent.id} className={intent.status === 'rejected' ? 'intent-rejected' : ''}>
+                <div className="intent-meta"><span>{intent.intent_key}</span><span>{intent.provenance}</span><span>{intent.priority}</span><span>{intent.status}</span></div>
+                <h2>{intent.title}</h2>
+                <p>{intent.job_to_be_done}</p>
+                <div className="intent-facts">
+                  <div><small>Buyer</small><strong>{intent.buyer || 'Not specified'}</strong></div>
+                  <div><small>Commercial model</small><strong>{intent.commercial_model || 'Not specified'}</strong></div>
+                  <div><small>Geography</small><strong>{intent.geography && typeof intent.geography === 'object' && !Array.isArray(intent.geography) && 'primary' in intent.geography ? String(intent.geography.primary) : 'Not specified'}</strong></div>
+                  <div><small>Purchase stage</small><strong>{intent.purchase_stage || 'Not specified'}</strong></div>
                 </div>
-              </details>
-              {intent.status === 'candidate' && (
-                <div className="intent-actions">
-                  <form action={approveIntent}><input type="hidden" name="project_id" value={id} /><input type="hidden" name="intent_id" value={intent.id} /><button>Approve</button></form>
-                  <form action={rejectIntent}><input type="hidden" name="project_id" value={id} /><input type="hidden" name="intent_id" value={intent.id} /><button className="reject">Reject</button></form>
-                </div>
-              )}
-            </article>
-          ))}
+
+                <details className="intent-details">
+                  <summary>Intent evidence + constraints</summary>
+                  <p>{intent.provenance_reason || 'No provenance rationale recorded.'}</p>
+                  <div className="intent-detail-columns">
+                    <div><small>Constraints</small><pre>{JSON.stringify(intent.constraints ?? [], null, 2)}</pre></div>
+                    <div><small>Required capabilities</small><pre>{JSON.stringify(intent.required_capabilities ?? [], null, 2)}</pre></div>
+                  </div>
+                </details>
+
+                {intent.status === 'candidate' && (
+                  <div className="intent-actions">
+                    <form action={approveIntent}><input type="hidden" name="project_id" value={id} /><input type="hidden" name="intent_id" value={intent.id} /><button>Approve</button></form>
+                    <form action={rejectIntent}><input type="hidden" name="project_id" value={id} /><input type="hidden" name="intent_id" value={intent.id} /><button className="reject">Reject</button></form>
+                  </div>
+                )}
+
+                {intent.status === 'approved' && (
+                  <section className="competitor-section">
+                    <div className="competitor-heading">
+                      <div>
+                        <div className="eyebrow">INTENT-SPECIFIC COMPETITOR UNIVERSE</div>
+                        <h3>{intentCompetitors.length ? `${intentCompetitors.length} evidence-backed candidates` : 'No competitor set generated yet.'}</h3>
+                        <p>Hard constraints are never relaxed. L0 is direct fit; L1–L3 are controlled broadening; L4 is a substitute; L5 is a benchmark.</p>
+                      </div>
+                      <form action={discoverCompetitors}>
+                        <input type="hidden" name="project_id" value={id} />
+                        <input type="hidden" name="intent_id" value={intent.id} />
+                        <input type="hidden" name="regenerate" value={intentCompetitors.length ? 'true' : 'false'} />
+                        <button type="submit">{intentCompetitors.length ? 'Refresh competitor set' : 'Discover competitors'}</button>
+                      </form>
+                    </div>
+
+                    {!!intentCompetitors.length && (
+                      <div className="competitor-list">
+                        {intentCompetitors.map((competitor) => {
+                          const evidence = evidenceItems(competitor.evidence)
+                          return (
+                            <div className="competitor-card" key={competitor.id}>
+                              <div className="competitor-badges"><span>L{competitor.discovery_layer}</span><span>{competitor.relationship.replaceAll('_', ' ')}</span><span>{competitor.evidence_strength} evidence</span></div>
+                              <h4>{competitor.company_name}</h4>
+                              <small>{competitor.domain || 'Domain not captured'}</small>
+                              <p>{competitor.rationale || 'No rationale captured.'}</p>
+                              <div className="competitor-fit-grid">
+                                <div><small>Matched</small><pre>{JSON.stringify(competitor.matched_constraints ?? [], null, 2)}</pre></div>
+                                <div><small>Relaxed</small><pre>{JSON.stringify(competitor.relaxed_constraints ?? [], null, 2)}</pre></div>
+                              </div>
+                              {!!evidence.length && (
+                                <div className="competitor-evidence">
+                                  <small>Evidence used</small>
+                                  {evidence.map((item, index) => (
+                                    <a key={`${String(item.url)}-${index}`} href={String(item.url)} target="_blank" rel="noreferrer">
+                                      <strong>{typeof item.title === 'string' ? item.title : String(item.url)}</strong>
+                                      <span>{typeof item.claim === 'string' ? item.claim : String(item.url)}</span>
+                                    </a>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </section>
+                )}
+              </article>
+            )
+          })}
         </div>
       )}
 
@@ -83,7 +149,7 @@ export default async function BuyerSituationsPage({ params, searchParams }: { pa
       {unlocked && (
         <details className="manual-intent-panel">
           <summary>Internal QA · add a structured Buyer Intent manually</summary>
-          <p>This is a development fallback, not the final customer workflow. It lets us validate the intent schema and downstream review UX alongside the model-backed Suggestor.</p>
+          <p>This is a development fallback, not the final customer workflow. It validates the intent schema and downstream competitor workflow independently of a reasoning provider.</p>
           <form action={addIntentCandidate} className="manual-intent-form">
             <input type="hidden" name="project_id" value={id} />
             <label>Situation title<input name="title" placeholder="Multi-city project rental" required /></label>
