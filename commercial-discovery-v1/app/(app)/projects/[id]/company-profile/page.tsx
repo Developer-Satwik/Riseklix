@@ -1,5 +1,11 @@
 import { createClient } from '@/lib/supabase/server'
-import { runCompanyResearch } from './actions'
+import { approveCompanyProfile, runCompanyResearch, saveCompanyProfile } from './actions'
+
+function listText(value: unknown) {
+  return Array.isArray(value)
+    ? value.map((item) => typeof item === 'string' ? item : JSON.stringify(item)).join('\n')
+    : ''
+}
 
 export default async function CompanyProfilePage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const { id } = await params
@@ -14,14 +20,7 @@ export default async function CompanyProfilePage({ params, searchParams }: { par
 
   const error = typeof query.error === 'string' ? query.error : null
   const message = typeof query.message === 'string' ? query.message : null
-
-  const cards = [
-    ['What you sell', profile?.products],
-    ['How customers buy', profile?.services],
-    ['Who appears to buy', profile?.audiences],
-    ['Where you operate', profile?.geographies],
-    ['What we are less certain about', profile?.uncertainty],
-  ] as const
+  const approved = profile?.status === 'approved'
 
   return (
     <div className="project-page">
@@ -29,24 +28,18 @@ export default async function CompanyProfilePage({ params, searchParams }: { par
         <div>
           <div className="eyebrow">COMPANY INTELLIGENCE</div>
           <h1>Here’s what Riseklix thinks this business actually does.</h1>
-          <p>Company intelligence is versioned and approved before buyer situations are generated. Sources and uncertainty remain attached to the claims they support.</p>
+          <p>Company intelligence is versioned and approved before buyer situations are generated. Research evidence stays separate from user-confirmed facts, and uncertainty remains visible instead of being silently filled in.</p>
         </div>
       </section>
 
       {error && <div className="form-alert error">{error}</div>}
       {message && <div className="form-alert success">{message}</div>}
 
-      <div className="profile-summary">
-        <span>{profile?.status ?? 'draft'}</span>
-        <h2>{profile?.company_name}</h2>
-        <p>{profile?.summary}</p>
-      </div>
-
       <section className="research-placeholder live-research">
         <div>
           <div className="eyebrow">FIRST-PARTY RESEARCH</div>
           <h2>{job?.status === 'succeeded' ? 'Homepage evidence captured.' : job?.status === 'failed' ? 'The latest crawl needs attention.' : 'Start with the company’s own evidence.'}</h2>
-          <p>The first live research stage fetches the company homepage, records a source snapshot hash, extracts a bounded text sample, and keeps the raw evidence separate from any future AI interpretation.</p>
+          <p>The first live research stage fetches the company homepage, records a snapshot hash, extracts a bounded text sample, and preserves the source before any AI interpretation is allowed to use it.</p>
           {job && <div className="job-line"><span>{job.status}</span><span>{job.stage ?? 'queued'}</span><span>{job.progress}%</span></div>}
         </div>
         <form action={runCompanyResearch}>
@@ -63,7 +56,11 @@ export default async function CompanyProfilePage({ params, searchParams }: { par
               const metadata = source.metadata && typeof source.metadata === 'object' && !Array.isArray(source.metadata) ? source.metadata as Record<string, unknown> : {}
               return (
                 <article key={source.id}>
-                  <div><span>{source.source_type.replaceAll('_', ' ')}</span><strong>{source.title || source.url}</strong><a href={source.url} target="_blank" rel="noreferrer">{source.url}</a></div>
+                  <div>
+                    <span>{source.source_type.replaceAll('_', ' ')}</span>
+                    <strong>{source.title || source.url}</strong>
+                    <a href={source.url} target="_blank" rel="noreferrer">{source.url}</a>
+                  </div>
                   <small>{source.captured_at ? new Date(source.captured_at).toLocaleString() : 'Not timestamped'} · {typeof metadata.http_status === 'number' ? `HTTP ${metadata.http_status}` : 'status unknown'}</small>
                 </article>
               )
@@ -72,14 +69,42 @@ export default async function CompanyProfilePage({ params, searchParams }: { par
         </section>
       )}
 
-      <div className="profile-grid">
-        {cards.map(([title, value]) => <section key={title}><div className="eyebrow">{title}</div><pre>{JSON.stringify(value ?? [], null, 2)}</pre></section>)}
-      </div>
+      {profile && (
+        <section className="profile-review-section">
+          <div className="review-heading">
+            <div><div className="eyebrow">HUMAN APPROVAL GATE</div><h2>Review the commercial context before we generate Buyer Intents.</h2></div>
+            <span className={`profile-state ${approved ? 'approved' : ''}`}>{profile.status}</span>
+          </div>
+          <p className="review-intro">One line per item. Saving an already-approved profile moves it back to draft review so a changed business premise can never silently rewrite an existing benchmark.</p>
+
+          <form action={saveCompanyProfile} className="profile-review-form">
+            <input type="hidden" name="project_id" value={id} />
+            <label>Company name<input name="company_name" defaultValue={profile.company_name ?? ''} required /></label>
+            <label>Industry<input name="industry" defaultValue={profile.industry ?? ''} placeholder="e.g. industrial access equipment" /></label>
+            <label className="full">Business model<input name="business_model" defaultValue={profile.business_model ?? ''} placeholder="e.g. manufacture + sale + rental + installation" /></label>
+            <label className="full">Company summary<textarea name="summary" defaultValue={profile.summary ?? ''} minLength={20} required /></label>
+            <label>Products<textarea name="products" defaultValue={listText(profile.products)} placeholder={'Aluminium scaffolding\nFRP ladders'} /></label>
+            <label>Services / how customers buy<textarea name="services" defaultValue={listText(profile.services)} placeholder={'Purchase\nRental\nInstallation support'} /></label>
+            <label>Buyer groups<textarea name="audiences" defaultValue={listText(profile.audiences)} placeholder={'EPC contractors\nFacility managers'} /></label>
+            <label>Geographies<textarea name="geographies" defaultValue={listText(profile.geographies)} placeholder={'India\nDelhi NCR\nMumbai'} /></label>
+            <label className="full">What we are less certain about<textarea name="uncertainty" defaultValue={listText(profile.uncertainty)} placeholder={'Exact local inventory by depot\nGuaranteed response SLA'} /></label>
+            <div className="profile-form-actions full">
+              <button type="submit">Save reviewed profile</button>
+            </div>
+          </form>
+
+          <form action={approveCompanyProfile} className="approval-panel">
+            <input type="hidden" name="project_id" value={id} />
+            <div><div className="eyebrow">APPROVAL</div><strong>{approved ? 'Company context approved.' : 'Only approve when the business context is materially correct.'}</strong><p>Approval unlocks Buyer Intent generation. It does not certify every public claim as true; evidence strength remains attached separately.</p></div>
+            <button type="submit" disabled={approved}>{approved ? 'Approved' : 'Approve + unlock Buyer Situations'}</button>
+          </form>
+        </section>
+      )}
 
       <section className="next-step-panel">
         <div className="eyebrow">NEXT RESEARCH STAGE</div>
-        <h2>Turn captured evidence into a reviewable Company Intelligence Profile.</h2>
-        <p>The next worker will crawl a controlled set of first-party pages, search outside-in sources, extract claims with provenance, flag uncertainty, and only then generate Buyer Intent candidates.</p>
+        <h2>{approved ? 'Generate commercial Buyer Intent candidates from the approved profile.' : 'Finish the Company Intelligence review.'}</h2>
+        <p>{approved ? 'The next engine will combine buyer, job, constraint, required capability, geography and commercial model before producing any prompt wording.' : 'Riseklix will not treat prompt generation as ground truth until this company premise is approved.'}</p>
       </section>
     </div>
   )
