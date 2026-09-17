@@ -1,20 +1,23 @@
 import { createClient } from '@/lib/supabase/server'
 import { addIntentCandidate, approveIntent, rejectIntent } from './actions'
+import { generateBuyerIntents } from './generate-actions'
 
 export default async function BuyerSituationsPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const { id } = await params
   const query = await searchParams
   const supabase = await createClient()
 
-  const [{ data: intents }, { data: profile }] = await Promise.all([
+  const [{ data: intents }, { data: profile }, { data: latestJob }] = await Promise.all([
     supabase.from('buyer_intents').select('id,intent_key,title,buyer,job_to_be_done,provenance,provenance_reason,priority,status,commercial_model,geography,constraints,required_capabilities').eq('project_id', id).order('created_at'),
     supabase.from('company_profile_versions').select('status,company_name').eq('project_id', id).eq('is_current', true).single(),
+    supabase.from('research_jobs').select('id,status,stage,progress,output,error,created_at').eq('project_id', id).eq('job_type', 'intent_generation').order('created_at', { ascending: false }).limit(1).maybeSingle(),
   ])
 
   const error = typeof query.error === 'string' ? query.error : null
   const message = typeof query.message === 'string' ? query.message : null
   const unlocked = profile?.status === 'approved'
   const approvedCount = intents?.filter((intent) => intent.status === 'approved').length ?? 0
+  const candidateCount = intents?.filter((intent) => intent.status === 'candidate').length ?? 0
 
   return (
     <div className="project-page">
@@ -33,9 +36,15 @@ export default async function BuyerSituationsPage({ params, searchParams }: { pa
         <div>
           <div className="eyebrow">BUYER INTENT ENGINE</div>
           <h2>{unlocked ? 'Company context approved. Intent generation is unlocked.' : 'Approve Company Intelligence first.'}</h2>
-          <p>{unlocked ? `${approvedCount} buyer situation${approvedCount === 1 ? '' : 's'} currently approved. The automated suggestor will populate candidate intents here once the model provider is wired.` : 'Riseklix will not generate confident-looking prompts from an unapproved understanding of the business.'}</p>
+          <p>{unlocked ? `${approvedCount} approved · ${candidateCount} awaiting review. The Suggestor uses approved company facts and preserved source evidence, then leaves every generated intent as a candidate until you approve it.` : 'Riseklix will not generate confident-looking prompts from an unapproved understanding of the business.'}</p>
+          {latestJob && <div className="job-line"><span>{latestJob.status}</span><span>{latestJob.stage ?? 'queued'}</span><span>{latestJob.progress}%</span></div>}
         </div>
-        <span>{unlocked ? 'READY' : 'LOCKED'}</span>
+        {unlocked ? (
+          <form action={generateBuyerIntents} className="intent-generate-form">
+            <input type="hidden" name="project_id" value={id} />
+            <button type="submit">{candidateCount ? 'Reuse / generate candidates' : 'Generate Buyer Situations'}</button>
+          </form>
+        ) : <span>LOCKED</span>}
       </section>
 
       {!!intents?.length && (
@@ -69,12 +78,12 @@ export default async function BuyerSituationsPage({ params, searchParams }: { pa
         </div>
       )}
 
-      {!intents?.length && <div className="empty-state"><h2>No buyer situations yet.</h2><p>{unlocked ? 'The automated Buyer Intent Suggestor is the next model-backed milestone. For QA, you can add a structured candidate manually below.' : 'They will be generated only after the company profile is reviewed and approved.'}</p></div>}
+      {!intents?.length && <div className="empty-state"><h2>No buyer situations yet.</h2><p>{unlocked ? 'Generate evidence-grounded candidates above. Nothing becomes part of the benchmark until you approve it.' : 'They will be generated only after the company profile is reviewed and approved.'}</p></div>}
 
       {unlocked && (
         <details className="manual-intent-panel">
           <summary>Internal QA · add a structured Buyer Intent manually</summary>
-          <p>This is a development fallback, not the final customer workflow. It lets us validate the intent schema and downstream review UX before connecting the differentiated Suggestor model.</p>
+          <p>This is a development fallback, not the final customer workflow. It lets us validate the intent schema and downstream review UX alongside the model-backed Suggestor.</p>
           <form action={addIntentCandidate} className="manual-intent-form">
             <input type="hidden" name="project_id" value={id} />
             <label>Situation title<input name="title" placeholder="Multi-city project rental" required /></label>
