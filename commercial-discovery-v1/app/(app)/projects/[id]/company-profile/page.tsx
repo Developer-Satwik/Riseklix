@@ -15,7 +15,7 @@ export default async function CompanyProfilePage({ params, searchParams }: { par
   const [{ data: profile }, { data: job }, { data: sources }] = await Promise.all([
     supabase.from('company_profile_versions').select('*').eq('project_id', id).eq('is_current', true).single(),
     supabase.from('research_jobs').select('id,status,progress,stage,created_at,completed_at,error').eq('project_id', id).eq('job_type', 'company_research').order('created_at', { ascending: false }).limit(1).maybeSingle(),
-    supabase.from('research_sources').select('id,url,title,source_type,captured_at,metadata').eq('project_id', id).order('captured_at', { ascending: false }).limit(8),
+    supabase.from('research_sources').select('id,url,title,source_type,captured_at,metadata').eq('project_id', id).order('captured_at', { ascending: false }).limit(12),
   ])
 
   const error = typeof query.error === 'string' ? query.error : null
@@ -38,13 +38,13 @@ export default async function CompanyProfilePage({ params, searchParams }: { par
       <section className="research-placeholder live-research">
         <div>
           <div className="eyebrow">FIRST-PARTY RESEARCH</div>
-          <h2>{job?.status === 'succeeded' ? 'Homepage evidence captured.' : job?.status === 'failed' ? 'The latest crawl needs attention.' : 'Start with the company’s own evidence.'}</h2>
-          <p>The first live research stage fetches the company homepage, records a snapshot hash, extracts a bounded text sample, and preserves the source before any AI interpretation is allowed to use it.</p>
+          <h2>{job?.status === 'succeeded' ? 'First-party evidence set captured.' : job?.status === 'failed' ? 'The latest crawl needs attention.' : 'Start with the company’s own evidence.'}</h2>
+          <p>The live research worker checks the homepage, sitemap and high-value internal pages, then stores bounded text evidence and snapshot hashes before any AI interpretation is allowed to use those facts.</p>
           {job && <div className="job-line"><span>{job.status}</span><span>{job.stage ?? 'queued'}</span><span>{job.progress}%</span></div>}
         </div>
         <form action={runCompanyResearch}>
           <input type="hidden" name="project_id" value={id} />
-          <button type="submit">{job?.status === 'succeeded' ? 'Refresh first-party capture' : 'Run company research'}</button>
+          <button type="submit">{job?.status === 'succeeded' ? 'Reuse / refresh research capture' : 'Run company research'}</button>
         </form>
       </section>
 
@@ -54,10 +54,11 @@ export default async function CompanyProfilePage({ params, searchParams }: { par
           <div className="evidence-list">
             {sources.map((source) => {
               const metadata = source.metadata && typeof source.metadata === 'object' && !Array.isArray(source.metadata) ? source.metadata as Record<string, unknown> : {}
+              const sourceRole = typeof metadata.source_role === 'string' ? metadata.source_role.replaceAll('_', ' ') : source.source_type.replaceAll('_', ' ')
               return (
                 <article key={source.id}>
                   <div>
-                    <span>{source.source_type.replaceAll('_', ' ')}</span>
+                    <span>{sourceRole}</span>
                     <strong>{source.title || source.url}</strong>
                     <a href={source.url} target="_blank" rel="noreferrer">{source.url}</a>
                   </div>
