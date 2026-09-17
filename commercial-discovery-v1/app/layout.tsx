@@ -4,6 +4,7 @@ import './research.css'
 import './competitors.css'
 import './prompts.css'
 import './benchmarks.css'
+import './observations.css'
 
 export const metadata: Metadata = {
   title: 'Riseklix — AI Commercial Discovery',
