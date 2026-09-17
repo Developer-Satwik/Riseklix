@@ -53,6 +53,7 @@ export async function createBaselinePanel(formData: FormData) {
   if (!selected.length) redirect(`/projects/${project.id}/recheck?error=${encodeURIComponent('Approve at least one unaided and one aided expression for the same Buyer Intent before creating a baseline')}`)
 
   const languages = Array.from(new Set(selected.map((item) => item.language)))
+  const repetitions = 3
   const { data: benchmark, error: benchmarkError } = await supabase.from('benchmarks').insert({
     workspace_id: project.workspace_id,
     project_id: project.id,
@@ -65,12 +66,11 @@ export async function createBaselinePanel(formData: FormData) {
       prompt_count: selected.length,
       intent_count: eligible.length,
       languages,
-      repetitions_per_expression: 3,
+      repetitions_per_expression: repetitions,
       session_policy: 'fresh_session_each_run',
       geography: project.market,
-      providers: [],
-      provider_policy: 'configure_before_run',
-      notes: 'Baseline panel created from approved unaided + aided expressions. Observation providers are configured separately.',
+      surface_policy: 'benchmark_complete_only_when_all_enabled_surfaces_complete',
+      notes: 'Baseline panel created from approved unaided + aided expressions. Each observation surface is tracked independently.',
     },
   }).select('id').single()
 
@@ -90,6 +90,30 @@ export async function createBaselinePanel(formData: FormData) {
     redirect(`/projects/${project.id}/recheck?error=${encodeURIComponent(memberError.message)}`)
   }
 
+  const { error: surfaceError } = await supabase.from('benchmark_surfaces').insert({
+    workspace_id: project.workspace_id,
+    project_id: project.id,
+    benchmark_id: benchmark.id,
+    provider: 'openai',
+    surface: 'openai_responses_web_search',
+    model_label: null,
+    enabled: true,
+    status: 'draft',
+    expected_runs: selected.length * repetitions,
+    captured_runs: 0,
+    error_runs: 0,
+    metadata: {
+      display_name: 'OpenAI Responses API · forced web search',
+      methodology_note: 'API observation surface. Do not label as the ChatGPT consumer application.',
+      model_resolved_at_run: true,
+    },
+  })
+
+  if (surfaceError) {
+    await supabase.from('benchmarks').delete().eq('id', benchmark.id)
+    redirect(`/projects/${project.id}/recheck?error=${encodeURIComponent(surfaceError.message)}`)
+  }
+
   const promptIds = selected.map((expression) => expression.id)
   const { error: freezeError } = await supabase.from('prompt_expressions').update({ is_frozen: true }).in('id', promptIds)
   if (freezeError) redirect(`/projects/${project.id}/recheck?error=${encodeURIComponent(freezeError.message)}`)
@@ -101,7 +125,7 @@ export async function createBaselinePanel(formData: FormData) {
     event_type: 'baseline_panel_created',
     entity_type: 'benchmark',
     entity_id: benchmark.id,
-    payload: { prompt_count: selected.length, intent_count: eligible.length, languages },
+    payload: { prompt_count: selected.length, intent_count: eligible.length, languages, configured_surfaces: ['openai_responses_web_search'] },
   })
 
   redirect(`/projects/${project.id}/recheck?message=${encodeURIComponent(`Baseline panel frozen with ${selected.length} approved expressions across ${eligible.length} Buyer Intents`)}`)
@@ -134,9 +158,9 @@ export async function runOpenAIObservationBatch(formData: FormData) {
   const captured = Number(data?.captured ?? 0)
   const failed = Number(data?.failed ?? 0)
   const remaining = Number(data?.remaining ?? 0)
-  const message = data?.complete
-    ? `OpenAI observation surface complete. ${Number(data?.total_captured ?? data?.captured ?? 0)} captures stored.`
-    : `Observation batch stored: ${captured} captured, ${failed} failed, ${remaining} remaining.`
+  const message = data?.surface_complete
+    ? `OpenAI observation surface complete. ${Number(data?.total_captured ?? data?.captured ?? 0)} captures stored.${data?.benchmark_complete ? ' Benchmark complete.' : ''}`
+    : `Observation batch stored: ${captured} captured, ${failed} failed, ${remaining} remaining on this surface.`
 
   redirect(`/projects/${parsed.data.project_id}/recheck?message=${encodeURIComponent(message)}`)
 }
