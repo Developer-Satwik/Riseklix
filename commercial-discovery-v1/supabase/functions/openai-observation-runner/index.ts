@@ -143,6 +143,23 @@ async function extractBrands(openai: OpenAI, model: string, answer: string, targ
   return JSON.parse(raw) as Extraction
 }
 
+async function benchmarkCompletion(ctx: { supabase: any }, benchmarkId: string) {
+  const { data: surfaces } = await ctx.supabase
+    .from('benchmark_surfaces')
+    .select('status,enabled')
+    .eq('benchmark_id', benchmarkId)
+    .eq('enabled', true)
+
+  const enabled = surfaces ?? []
+  const complete = enabled.length > 0 && enabled.every((item: { status: string }) => item.status === 'complete')
+  if (complete) {
+    await ctx.supabase.from('benchmarks').update({ status: 'complete', completed_at: new Date().toISOString() }).eq('id', benchmarkId)
+  } else {
+    await ctx.supabase.from('benchmarks').update({ status: 'running', completed_at: null }).eq('id', benchmarkId)
+  }
+  return complete
+}
+
 export default {
   fetch: withSupabase({ auth: 'user' }, async (req, ctx) => {
     if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405)
@@ -187,6 +204,36 @@ export default {
       .in('id', promptIds)
     if (promptError || !prompts?.length) return json({ error: 'Benchmark prompt expressions could not be loaded' }, 409)
 
+    const eligiblePrompts = prompts.filter((prompt) => prompt.status === 'approved' && prompt.is_frozen)
+    const expected = eligiblePrompts.length * repetitions
+
+    const { data: surfaceConfig, error: surfaceError } = await ctx.supabase
+      .from('benchmark_surfaces')
+      .select('id,enabled,status')
+      .eq('benchmark_id', benchmark.id)
+      .eq('provider', provider)
+      .eq('surface', surface)
+      .maybeSingle()
+
+    if (surfaceError) return json({ error: surfaceError.message }, 400)
+    if (surfaceConfig && !surfaceConfig.enabled) return json({ error: 'surface_disabled', message: 'This observation surface is disabled for the benchmark.' }, 409)
+
+    if (!surfaceConfig) {
+      const { error: createSurfaceError } = await ctx.supabase.from('benchmark_surfaces').insert({
+        workspace_id: project.workspace_id,
+        project_id: project.id,
+        benchmark_id: benchmark.id,
+        provider,
+        surface,
+        model_label: observationModel,
+        enabled: true,
+        status: 'draft',
+        expected_runs: expected,
+        metadata: { display_name: 'OpenAI Responses API · forced web search', model_resolved_at_run: true },
+      })
+      if (createSurfaceError) return json({ error: createSurfaceError.message }, 400)
+    }
+
     const { data: existingRuns } = await ctx.supabase
       .from('observation_runs')
       .select('prompt_expression_id,repetition,run_status')
@@ -197,8 +244,7 @@ export default {
     const completedKeys = new Set((existingRuns ?? []).filter((run) => run.run_status === 'captured').map((run) => `${run.prompt_expression_id}:${run.repetition}`))
     const planned: PlannedRun[] = []
 
-    for (const prompt of prompts) {
-      if (prompt.status !== 'approved' || !prompt.is_frozen) continue
+    for (const prompt of eligiblePrompts) {
       for (let repetition = 1; repetition <= repetitions; repetition++) {
         const key = `${prompt.id}:${repetition}`
         if (completedKeys.has(key)) continue
@@ -207,8 +253,18 @@ export default {
     }
 
     if (!planned.length) {
-      await ctx.supabase.from('benchmarks').update({ status: 'complete', completed_at: new Date().toISOString() }).eq('id', benchmark.id)
-      return json({ complete: true, captured: existingRuns?.filter((run) => run.run_status === 'captured').length ?? 0 })
+      const errors = (existingRuns ?? []).filter((run) => run.run_status === 'error').length
+      await ctx.supabase.from('benchmark_surfaces').update({
+        model_label: observationModel,
+        status: 'complete',
+        expected_runs: expected,
+        captured_runs: completedKeys.size,
+        error_runs: errors,
+        completed_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      }).eq('benchmark_id', benchmark.id).eq('provider', provider).eq('surface', surface)
+      const benchmarkComplete = await benchmarkCompletion(ctx, benchmark.id)
+      return json({ surface_complete: true, benchmark_complete: benchmarkComplete, captured: completedKeys.size, expected, remaining: 0 })
     }
 
     const batch = planned.slice(0, maxRuns)
@@ -227,7 +283,16 @@ export default {
     }).select('id').single()
     if (jobError || !job) return json({ error: jobError?.message ?? 'Could not start observation batch' }, 400)
 
-    await ctx.supabase.from('benchmarks').update({ status: 'running', started_at: new Date().toISOString() }).eq('id', benchmark.id).eq('status', 'draft')
+    const now = new Date().toISOString()
+    await ctx.supabase.from('benchmarks').update({ status: 'running', started_at: now, completed_at: null }).eq('id', benchmark.id).eq('status', 'draft')
+    await ctx.supabase.from('benchmark_surfaces').update({
+      model_label: observationModel,
+      status: 'running',
+      expected_runs: expected,
+      started_at: now,
+      completed_at: null,
+      updated_at: now,
+    }).eq('benchmark_id', benchmark.id).eq('provider', provider).eq('surface', surface)
 
     const openai = new OpenAI({ apiKey })
     let captured = 0
@@ -345,20 +410,42 @@ export default {
       .eq('surface', surface)
 
     const capturedKeys = new Set((allRuns ?? []).filter((run) => run.run_status === 'captured').map((run) => `${run.prompt_expression_id}:${run.repetition}`))
-    const expected = prompts.filter((prompt) => prompt.status === 'approved' && prompt.is_frozen).length * repetitions
-    const complete = capturedKeys.size >= expected
+    const errorRuns = (allRuns ?? []).filter((run) => run.run_status === 'error').length
+    const surfaceComplete = capturedKeys.size >= expected
+    const terminalFailure = !surfaceComplete && capturedKeys.size === 0 && errorRuns >= expected
 
-    if (complete) await ctx.supabase.from('benchmarks').update({ status: 'complete', completed_at: new Date().toISOString() }).eq('id', benchmark.id)
+    await ctx.supabase.from('benchmark_surfaces').update({
+      model_label: observationModel,
+      status: surfaceComplete ? 'complete' : terminalFailure ? 'failed' : 'running',
+      expected_runs: expected,
+      captured_runs: capturedKeys.size,
+      error_runs: errorRuns,
+      completed_at: surfaceComplete ? new Date().toISOString() : null,
+      updated_at: new Date().toISOString(),
+    }).eq('benchmark_id', benchmark.id).eq('provider', provider).eq('surface', surface)
+
+    const benchmarkComplete = await benchmarkCompletion(ctx, benchmark.id)
 
     await ctx.supabase.from('research_jobs').update({
       status: failed && !captured ? 'failed' : 'succeeded',
       progress: 100,
-      stage: complete ? 'openai_observation_complete' : 'openai_observation_batch_complete',
-      output: { benchmark_id: benchmark.id, provider, surface, captured, failed, total_captured: capturedKeys.size, expected, complete },
+      stage: surfaceComplete ? 'openai_surface_complete' : 'openai_observation_batch_complete',
+      output: { benchmark_id: benchmark.id, provider, surface, captured, failed, total_captured: capturedKeys.size, expected, surface_complete: surfaceComplete, benchmark_complete: benchmarkComplete },
       error: failed && !captured ? { message: 'All runs in this batch failed' } : {},
       completed_at: new Date().toISOString(),
     }).eq('id', job.id)
 
-    return json({ benchmark_id: benchmark.id, provider, surface, captured, failed, total_captured: capturedKeys.size, expected, remaining: Math.max(expected - capturedKeys.size, 0), complete })
+    return json({
+      benchmark_id: benchmark.id,
+      provider,
+      surface,
+      captured,
+      failed,
+      total_captured: capturedKeys.size,
+      expected,
+      remaining: Math.max(expected - capturedKeys.size, 0),
+      surface_complete: surfaceComplete,
+      benchmark_complete: benchmarkComplete,
+    })
   }),
 }
