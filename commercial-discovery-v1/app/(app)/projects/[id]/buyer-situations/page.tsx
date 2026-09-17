@@ -2,6 +2,7 @@ import { createClient } from '@/lib/supabase/server'
 import { addIntentCandidate, approveIntent, rejectIntent } from './actions'
 import { generateBuyerIntents } from './generate-actions'
 import { discoverCompetitors } from './competitor-actions'
+import { approvePromptExpression, generatePromptExpressions, rejectPromptExpression } from './prompt-actions'
 
 function record(value: unknown) {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
@@ -17,11 +18,12 @@ export default async function BuyerSituationsPage({ params, searchParams }: { pa
   const query = await searchParams
   const supabase = await createClient()
 
-  const [{ data: intents }, { data: profile }, { data: latestJob }, { data: competitors }] = await Promise.all([
+  const [{ data: intents }, { data: profile }, { data: latestJob }, { data: competitors }, { data: prompts }] = await Promise.all([
     supabase.from('buyer_intents').select('id,intent_key,title,buyer,job_to_be_done,provenance,provenance_reason,priority,status,commercial_model,geography,constraints,required_capabilities,purchase_stage,language_policy,source_refs').eq('project_id', id).order('created_at'),
     supabase.from('company_profile_versions').select('status,company_name').eq('project_id', id).eq('is_current', true).single(),
     supabase.from('research_jobs').select('id,status,stage,progress,output,error,created_at').eq('project_id', id).eq('job_type', 'intent_generation').order('created_at', { ascending: false }).limit(1).maybeSingle(),
     supabase.from('competitor_candidates').select('id,buyer_intent_id,company_name,domain,relationship,discovery_layer,status,matched_constraints,relaxed_constraints,evidence,evidence_strength,rationale,is_current').eq('project_id', id).eq('is_current', true).order('discovery_layer').order('company_name'),
+    supabase.from('prompt_expressions').select('id,buyer_intent_id,language,mode,variant_no,prompt_text,status,is_frozen,version').eq('project_id', id).order('language').order('mode').order('variant_no'),
   ])
 
   const error = typeof query.error === 'string' ? query.error : null
@@ -36,7 +38,7 @@ export default async function BuyerSituationsPage({ params, searchParams }: { pa
         <div>
           <div className="eyebrow">WHERE SHOULD WE BE CONSIDERED?</div>
           <h1>Buyer Situations</h1>
-          <p>Riseklix models buyer + job + constraints + capabilities + geography + commercial model first. Competitor sets are discovered separately for each approved situation, with evidence and an explicit constraint-relaxation ladder.</p>
+          <p>Riseklix models the commercial situation first, discovers a defensible competitor universe second, and only then creates controlled prompt expressions for observation.</p>
         </div>
       </section>
 
@@ -62,6 +64,9 @@ export default async function BuyerSituationsPage({ params, searchParams }: { pa
         <div className="intent-list review-intents">
           {intents.map((intent) => {
             const intentCompetitors = (competitors ?? []).filter((competitor) => competitor.buyer_intent_id === intent.id)
+            const intentPrompts = (prompts ?? []).filter((prompt) => prompt.buyer_intent_id === intent.id)
+            const approvedPrompts = intentPrompts.filter((prompt) => prompt.status === 'approved').length
+
             return (
               <article key={intent.id} className={intent.status === 'rejected' ? 'intent-rejected' : ''}>
                 <div className="intent-meta"><span>{intent.intent_key}</span><span>{intent.provenance}</span><span>{intent.priority}</span><span>{intent.status}</span></div>
@@ -91,52 +96,89 @@ export default async function BuyerSituationsPage({ params, searchParams }: { pa
                 )}
 
                 {intent.status === 'approved' && (
-                  <section className="competitor-section">
-                    <div className="competitor-heading">
-                      <div>
-                        <div className="eyebrow">INTENT-SPECIFIC COMPETITOR UNIVERSE</div>
-                        <h3>{intentCompetitors.length ? `${intentCompetitors.length} evidence-backed candidates` : 'No competitor set generated yet.'}</h3>
-                        <p>Hard constraints are never relaxed. L0 is direct fit; L1–L3 are controlled broadening; L4 is a substitute; L5 is a benchmark.</p>
+                  <>
+                    <section className="competitor-section">
+                      <div className="competitor-heading">
+                        <div>
+                          <div className="eyebrow">INTENT-SPECIFIC COMPETITOR UNIVERSE</div>
+                          <h3>{intentCompetitors.length ? `${intentCompetitors.length} evidence-backed candidates` : 'No competitor set generated yet.'}</h3>
+                          <p>Hard constraints are never relaxed. L0 is direct fit; L1–L3 are controlled broadening; L4 is a substitute; L5 is a benchmark.</p>
+                        </div>
+                        <form action={discoverCompetitors}>
+                          <input type="hidden" name="project_id" value={id} />
+                          <input type="hidden" name="intent_id" value={intent.id} />
+                          <input type="hidden" name="regenerate" value={intentCompetitors.length ? 'true' : 'false'} />
+                          <button type="submit">{intentCompetitors.length ? 'Refresh competitor set' : 'Discover competitors'}</button>
+                        </form>
                       </div>
-                      <form action={discoverCompetitors}>
-                        <input type="hidden" name="project_id" value={id} />
-                        <input type="hidden" name="intent_id" value={intent.id} />
-                        <input type="hidden" name="regenerate" value={intentCompetitors.length ? 'true' : 'false'} />
-                        <button type="submit">{intentCompetitors.length ? 'Refresh competitor set' : 'Discover competitors'}</button>
-                      </form>
-                    </div>
 
-                    {!!intentCompetitors.length && (
-                      <div className="competitor-list">
-                        {intentCompetitors.map((competitor) => {
-                          const evidence = evidenceItems(competitor.evidence)
-                          return (
-                            <div className="competitor-card" key={competitor.id}>
-                              <div className="competitor-badges"><span>L{competitor.discovery_layer}</span><span>{competitor.relationship.replaceAll('_', ' ')}</span><span>{competitor.evidence_strength} evidence</span></div>
-                              <h4>{competitor.company_name}</h4>
-                              <small>{competitor.domain || 'Domain not captured'}</small>
-                              <p>{competitor.rationale || 'No rationale captured.'}</p>
-                              <div className="competitor-fit-grid">
-                                <div><small>Matched</small><pre>{JSON.stringify(competitor.matched_constraints ?? [], null, 2)}</pre></div>
-                                <div><small>Relaxed</small><pre>{JSON.stringify(competitor.relaxed_constraints ?? [], null, 2)}</pre></div>
+                      {!!intentCompetitors.length && (
+                        <div className="competitor-list">
+                          {intentCompetitors.map((competitor) => {
+                            const evidence = evidenceItems(competitor.evidence)
+                            return (
+                              <div className="competitor-card" key={competitor.id}>
+                                <div className="competitor-badges"><span>L{competitor.discovery_layer}</span><span>{competitor.relationship.replaceAll('_', ' ')}</span><span>{competitor.evidence_strength} evidence</span></div>
+                                <h4>{competitor.company_name}</h4>
+                                <small>{competitor.domain || 'Domain not captured'}</small>
+                                <p>{competitor.rationale || 'No rationale captured.'}</p>
+                                <div className="competitor-fit-grid">
+                                  <div><small>Matched</small><pre>{JSON.stringify(competitor.matched_constraints ?? [], null, 2)}</pre></div>
+                                  <div><small>Relaxed</small><pre>{JSON.stringify(competitor.relaxed_constraints ?? [], null, 2)}</pre></div>
+                                </div>
+                                {!!evidence.length && (
+                                  <div className="competitor-evidence">
+                                    <small>Evidence used</small>
+                                    {evidence.map((item, index) => (
+                                      <a key={`${String(item.url)}-${index}`} href={String(item.url)} target="_blank" rel="noreferrer">
+                                        <strong>{typeof item.title === 'string' ? item.title : String(item.url)}</strong>
+                                        <span>{typeof item.claim === 'string' ? item.claim : String(item.url)}</span>
+                                      </a>
+                                    ))}
+                                  </div>
+                                )}
                               </div>
-                              {!!evidence.length && (
-                                <div className="competitor-evidence">
-                                  <small>Evidence used</small>
-                                  {evidence.map((item, index) => (
-                                    <a key={`${String(item.url)}-${index}`} href={String(item.url)} target="_blank" rel="noreferrer">
-                                      <strong>{typeof item.title === 'string' ? item.title : String(item.url)}</strong>
-                                      <span>{typeof item.claim === 'string' ? item.claim : String(item.url)}</span>
-                                    </a>
-                                  ))}
+                            )
+                          })}
+                        </div>
+                      )}
+                    </section>
+
+                    <section className="prompt-section">
+                      <div className="prompt-heading">
+                        <div>
+                          <div className="eyebrow">CONTROLLED QUESTION EXPRESSIONS</div>
+                          <h3>{intentPrompts.length ? `${approvedPrompts}/${intentPrompts.length} approved` : 'Generate wording only after the competitor universe is known.'}</h3>
+                          <p>Unaided questions never contain the target brand. Aided controls test whether AI understands the same company inside the same buying situation.</p>
+                        </div>
+                        {!!intentCompetitors.length && !intentPrompts.length && (
+                          <form action={generatePromptExpressions}>
+                            <input type="hidden" name="project_id" value={id} />
+                            <input type="hidden" name="intent_id" value={intent.id} />
+                            <input type="hidden" name="regenerate" value="false" />
+                            <button type="submit">Generate question expressions</button>
+                          </form>
+                        )}
+                      </div>
+
+                      {!!intentPrompts.length && (
+                        <div className="prompt-list">
+                          {intentPrompts.map((prompt) => (
+                            <div className={`prompt-card prompt-${prompt.status}`} key={prompt.id}>
+                              <div className="prompt-card-meta"><span>{prompt.language}</span><span>{prompt.mode}</span><span>v{prompt.version}.{prompt.variant_no}</span><span>{prompt.status}</span>{prompt.is_frozen && <span>frozen</span>}</div>
+                              <p>{prompt.prompt_text}</p>
+                              {prompt.status === 'candidate' && !prompt.is_frozen && (
+                                <div className="prompt-actions">
+                                  <form action={approvePromptExpression}><input type="hidden" name="project_id" value={id} /><input type="hidden" name="intent_id" value={intent.id} /><input type="hidden" name="prompt_id" value={prompt.id} /><button type="submit">Approve</button></form>
+                                  <form action={rejectPromptExpression}><input type="hidden" name="project_id" value={id} /><input type="hidden" name="intent_id" value={intent.id} /><input type="hidden" name="prompt_id" value={prompt.id} /><button type="submit" className="reject">Reject</button></form>
                                 </div>
                               )}
                             </div>
-                          )
-                        })}
-                      </div>
-                    )}
-                  </section>
+                          ))}
+                        </div>
+                      )}
+                    </section>
+                  </>
                 )}
               </article>
             )
