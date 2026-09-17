@@ -28,6 +28,7 @@ jobs:
           node-version: 22
       - run: npm install --package-lock-only
       - run: npm ci
+      - run: npm run security:audit
       - run: npm run typecheck
       - run: npm run lint
       - run: npm run build
