@@ -10,11 +10,12 @@ export default async function RecheckPage({ params, searchParams }: { params: Pr
   const query = await searchParams
   const supabase = await createClient()
 
-  const [{ data: benchmarks }, { data: expressions }, { data: memberships }, { data: observations }] = await Promise.all([
+  const [{ data: benchmarks }, { data: expressions }, { data: memberships }, { data: observations }, { data: surfaces }] = await Promise.all([
     supabase.from('benchmarks').select('id,benchmark_type,status,version,started_at,completed_at,parent_benchmark_id,collection_config,created_at').eq('project_id', id).order('created_at', { ascending: false }),
     supabase.from('prompt_expressions').select('id,buyer_intent_id,language,mode,status,is_frozen').eq('project_id', id),
     supabase.from('benchmark_prompts').select('benchmark_id,prompt_expression_id,buyer_intent_id').eq('project_id', id),
     supabase.from('observation_runs').select('id,benchmark_id,prompt_expression_id,provider,surface,model_label,repetition,language,run_status,retrieval_status,target_rank,captured_at,metadata,error_message').eq('project_id', id).order('created_at', { ascending: false }),
+    supabase.from('benchmark_surfaces').select('id,benchmark_id,provider,surface,model_label,enabled,status,expected_runs,captured_runs,error_runs,metadata,started_at,completed_at').eq('project_id', id).order('created_at'),
   ])
 
   const error = typeof query.error === 'string' ? query.error : null
@@ -37,7 +38,7 @@ export default async function RecheckPage({ params, searchParams }: { params: Pr
         <div>
           <div className="eyebrow">DID ANYTHING CHANGE?</div>
           <h1>Recheck</h1>
-          <p>A verified implementation and a changed AI result are separate facts. The baseline freezes approved question expressions; future rechecks reuse the comparable panel rather than silently changing the test.</p>
+          <p>A verified implementation and a changed AI result are separate facts. The baseline freezes approved question expressions; each observation surface completes independently, and the benchmark completes only when every enabled surface is done.</p>
         </div>
       </section>
 
@@ -65,13 +66,10 @@ export default async function RecheckPage({ params, searchParams }: { params: Pr
             const promptCount = (memberships ?? []).filter((member) => member.benchmark_id === benchmark.id).length
             const benchmarkObservations = (observations ?? []).filter((run) => run.benchmark_id === benchmark.id)
             const captured = benchmarkObservations.filter((run) => run.run_status === 'captured')
-            const errors = benchmarkObservations.filter((run) => run.run_status === 'error')
             const unaided = captured.filter((run) => record(run.metadata).prompt_mode === 'unaided')
             const unaidedRetrieved = unaided.filter((run) => run.retrieval_status === 'retrieved')
             const repetitions = typeof config.repetitions_per_expression === 'number' ? config.repetitions_per_expression : 3
-            const expectedOpenAIRuns = promptCount * repetitions
-            const openAICaptured = captured.filter((run) => run.provider === 'openai' && run.surface === 'openai_responses_web_search').length
-            const observationComplete = expectedOpenAIRuns > 0 && openAICaptured >= expectedOpenAIRuns
+            const benchmarkSurfaces = (surfaces ?? []).filter((surface) => surface.benchmark_id === benchmark.id && surface.enabled)
 
             return (
               <article key={benchmark.id}>
@@ -81,47 +79,60 @@ export default async function RecheckPage({ params, searchParams }: { params: Pr
                   <div><small>Question expressions</small><strong>{promptCount}</strong></div>
                   <div><small>Buyer intents</small><strong>{typeof config.intent_count === 'number' ? config.intent_count : '—'}</strong></div>
                   <div><small>Repetitions</small><strong>{repetitions}</strong></div>
-                  <div><small>Captured runs</small><strong>{captured.length}</strong></div>
+                  <div><small>Enabled surfaces</small><strong>{benchmarkSurfaces.length}</strong></div>
                 </div>
 
-                <section className="observation-surface">
-                  <div className="observation-surface-head">
-                    <div>
-                      <div className="eyebrow">OBSERVATION SURFACE · DECLARED</div>
-                      <h3>OpenAI Responses API · forced web search</h3>
-                      <p>This is stored as an API observation surface, not labeled as the ChatGPT consumer application. Every run is a fresh session and preserves model label, citations, repetition and capture state.</p>
-                    </div>
-                    {!observationComplete && (
-                      <form action={runOpenAIObservationBatch}>
-                        <input type="hidden" name="project_id" value={id} />
-                        <input type="hidden" name="benchmark_id" value={benchmark.id} />
-                        <button type="submit">{openAICaptured ? 'Run next 4 observations' : 'Start OpenAI baseline'}</button>
-                      </form>
-                    )}
-                  </div>
-                  <div className="observation-facts">
-                    <div><small>OpenAI captures</small><strong>{openAICaptured}/{expectedOpenAIRuns || '—'}</strong></div>
-                    <div><small>Unaided retrieved</small><strong>{unaided.length ? `${unaidedRetrieved.length}/${unaided.length}` : '—'}</strong></div>
-                    <div><small>Capture errors</small><strong>{errors.length}</strong></div>
-                    <div><small>State</small><strong>{observationComplete ? 'surface complete' : openAICaptured ? 'collecting' : 'not started'}</strong></div>
-                  </div>
-                  {!!captured.length && (
-                    <div className="recent-observations">
-                      {captured.slice(0, 6).map((run) => {
-                        const meta = record(run.metadata)
-                        return (
-                          <div key={run.id}>
-                            <span>{String(meta.prompt_mode ?? 'unknown')} · {run.language} · rep {run.repetition}</span>
-                            <strong>{run.retrieval_status === 'retrieved' ? `retrieved${run.target_rank ? ` · rank ${run.target_rank}` : ''}` : 'NR'}</strong>
-                            <small>{run.model_label || run.surface}</small>
-                          </div>
-                        )
-                      })}
-                    </div>
-                  )}
-                </section>
+                <div className="surface-list">
+                  {benchmarkSurfaces.map((surfaceConfig) => {
+                    const surfaceObservations = benchmarkObservations.filter((run) => run.provider === surfaceConfig.provider && run.surface === surfaceConfig.surface)
+                    const surfaceCaptured = surfaceObservations.filter((run) => run.run_status === 'captured')
+                    const surfaceUnaided = surfaceCaptured.filter((run) => record(run.metadata).prompt_mode === 'unaided')
+                    const surfaceRetrieved = surfaceUnaided.filter((run) => run.retrieval_status === 'retrieved')
+                    const meta = record(surfaceConfig.metadata)
+                    const isOpenAI = surfaceConfig.provider === 'openai' && surfaceConfig.surface === 'openai_responses_web_search'
 
-                <p>{benchmark.completed_at ? `Completed ${new Date(benchmark.completed_at).toLocaleString()}` : benchmark.started_at ? `Started ${new Date(benchmark.started_at).toLocaleString()}` : 'Panel is frozen and ready for declared observation surfaces.'}</p>
+                    return (
+                      <section className="observation-surface" key={surfaceConfig.id}>
+                        <div className="observation-surface-head">
+                          <div>
+                            <div className="eyebrow">OBSERVATION SURFACE · {surfaceConfig.status}</div>
+                            <h3>{typeof meta.display_name === 'string' ? meta.display_name : `${surfaceConfig.provider} · ${surfaceConfig.surface}`}</h3>
+                            <p>{typeof meta.methodology_note === 'string' ? meta.methodology_note : 'This observation surface is declared separately so results are not silently mixed across products or APIs.'}</p>
+                          </div>
+                          {isOpenAI && surfaceConfig.status !== 'complete' && (
+                            <form action={runOpenAIObservationBatch}>
+                              <input type="hidden" name="project_id" value={id} />
+                              <input type="hidden" name="benchmark_id" value={benchmark.id} />
+                              <button type="submit">{surfaceConfig.captured_runs ? 'Run next 4 observations' : 'Start OpenAI baseline'}</button>
+                            </form>
+                          )}
+                        </div>
+                        <div className="observation-facts">
+                          <div><small>Captured</small><strong>{surfaceConfig.captured_runs}/{surfaceConfig.expected_runs || '—'}</strong></div>
+                          <div><small>Unaided retrieved</small><strong>{surfaceUnaided.length ? `${surfaceRetrieved.length}/${surfaceUnaided.length}` : '—'}</strong></div>
+                          <div><small>Capture errors</small><strong>{surfaceConfig.error_runs}</strong></div>
+                          <div><small>Model label</small><strong>{surfaceConfig.model_label || 'Resolved on first run'}</strong></div>
+                        </div>
+                        {!!surfaceCaptured.length && (
+                          <div className="recent-observations">
+                            {surfaceCaptured.slice(0, 6).map((run) => {
+                              const runMeta = record(run.metadata)
+                              return (
+                                <div key={run.id}>
+                                  <span>{String(runMeta.prompt_mode ?? 'unknown')} · {run.language} · rep {run.repetition}</span>
+                                  <strong>{run.retrieval_status === 'retrieved' ? `retrieved${run.target_rank ? ` · rank ${run.target_rank}` : ''}` : 'NR'}</strong>
+                                  <small>{run.model_label || run.surface}</small>
+                                </div>
+                              )
+                            })}
+                          </div>
+                        )}
+                      </section>
+                    )
+                  })}
+                </div>
+
+                <p>{benchmark.completed_at ? `All enabled surfaces completed ${new Date(benchmark.completed_at).toLocaleString()}` : benchmark.started_at ? `Collection started ${new Date(benchmark.started_at).toLocaleString()}` : 'Panel is frozen and ready for its configured observation surfaces.'}</p>
               </article>
             )
           })}
@@ -134,7 +145,7 @@ export default async function RecheckPage({ params, searchParams }: { params: Pr
         <section className="next-step-panel">
           <div className="eyebrow">METHOD NOTE</div>
           <h2>NR, capture failure and “not run yet” stay separate.</h2>
-          <p>NR is assigned only after a captured answer does not place the target in the recommended or shortlisted provider set. Failed captures remain errors; unrun repetitions remain pending. Aided controls never count toward unaided discovery visibility.</p>
+          <p>NR is assigned only after a captured answer does not place the target in the recommended or shortlisted provider set. Failed captures remain errors; unrun repetitions remain pending. Aided controls never count toward unaided discovery visibility. Results from different provider surfaces remain separately labeled.</p>
         </section>
       )}
     </div>
