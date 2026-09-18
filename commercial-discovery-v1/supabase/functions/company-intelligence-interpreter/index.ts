@@ -1,5 +1,6 @@
 import { withSupabase } from 'npm:@supabase/server'
 import OpenAI from 'npm:openai'
+import { firecrawlSearch, type FirecrawlDocument } from '../_shared/firecrawl.ts'
 
 declare const EdgeRuntime: { waitUntil(promise: Promise<unknown>): void }
 
@@ -115,6 +116,30 @@ function outputText(response: unknown) {
   return ''
 }
 
+function marketCountry(market: string) {
+  const values: Record<string, string> = {
+    India: 'IN',
+    'United States': 'US',
+    'United Kingdom': 'GB',
+    UAE: 'AE',
+    Singapore: 'SG',
+    Australia: 'AU',
+  }
+  return values[market]
+}
+
+function uniqueFirecrawlDocs(groups: FirecrawlDocument[][]) {
+  const byUrl = new Map<string, FirecrawlDocument>()
+  for (const group of groups) {
+    for (const item of group) {
+      const key = normalizeUrl(item.url)
+      if (!key || byUrl.has(key)) continue
+      byUrl.set(key, item)
+    }
+  }
+  return [...byUrl.values()]
+}
+
 function sourcePacket(source: { id: string; url: string; title: string | null; source_type: string; metadata: unknown }) {
   const metadata = record(source.metadata)
   return {
@@ -197,43 +222,85 @@ const handler = {
         }).eq('id', job.id)
 
         const openai = new OpenAI({ apiKey })
-        const response = await openai.responses.create({
-        model,
-        reasoning: { effort: 'medium' },
-        tools: [{ type: 'web_search_preview', search_context_size: 'medium' }],
-        tool_choice: 'required',
-        include: ['web_search_call.action.sources'],
-        instructions: `You are the Company Intelligence interpreter for Riseklix Commercial Discovery.
+        const firecrawlKey = Deno.env.get('FIRECRAWL_API_KEY')
+        let firecrawlSources: FirecrawlDocument[] = []
 
-Your job is to reconstruct the company's commercial reality using BOTH supplied company evidence and current outside-in web research before Buyer Intent generation.
+        if (firecrawlKey) {
+          const companyName = profile.company_name || project.name
+          const country = marketCountry(project.market)
+          const queries = [
+            companyName + ' ' + project.domain + ' company products services',
+            companyName + ' ' + project.market + ' customers locations capabilities',
+          ]
+
+          const searched = await Promise.all(
+            queries.map((query) => firecrawlSearch(firecrawlKey, query, {
+              limit: 5,
+              location: country,
+              scrape: true,
+            }))
+          )
+          firecrawlSources = uniqueFirecrawlDocs(searched).slice(0, 10)
+        }
+
+        const outsideInPackets = firecrawlSources.map((source) => ({
+          url: source.url,
+          title: source.title,
+          description: source.description,
+          text_sample: source.markdown.slice(0, 6500),
+          acquisition_method: 'firecrawl_search',
+        }))
+
+        const baseInstructions = `You are the Company Intelligence interpreter for Riseklix Commercial Discovery.
+
+Your job is to reconstruct the company's commercial reality using supplied evidence before Buyer Intent generation.
 
 Rules:
-1. Always use web search. Research the company by name, domain, products/services, geographies and commercial model.
-2. Treat evidence in layers: (a) direct first-party captures, (b) indexed first-party evidence, (c) independent external evidence such as reputable directories, trade/industry sources, client/customer references, registries, press or other public corroboration.
-3. Prefer first-party evidence for what the company claims. Use independent sources to corroborate, challenge or qualify those claims where possible.
-4. Never infer a capability merely because a third-party page categorizes the company broadly. A material capability should be explicit in at least one relevant source.
-5. If first-party and external evidence disagree, preserve the disagreement in uncertainty instead of silently resolving it.
-6. Do not turn marketing adjectives into verified capabilities.
-7. Products are things sold or supplied. Services describe how customers engage, such as rental, implementation, installation, consulting, support or project delivery.
-8. Audiences must be supported by explicit customer, industry, use-case or commercial evidence; do not invent personas from generic category assumptions.
-9. Geographies should reflect evidence actually present. Never infer national or local coverage from a generic contact page.
-10. Every claim and evidence fact must cite source_urls. Use exact URLs from supplied packets or web-search sources.
-11. 'supported' means supported by the evidence set, not independently proven truth. Weak or conflicting support belongs in uncertainty.
-12. The summary should be concise, commercial and neutral: what the company provides, who it appears to serve, where, and how customers buy.
-13. The research objective is not to make the company look good. It is to reconstruct what a serious buyer or AI system could verify publicly.`,
-        input: 'Project context:\n' + JSON.stringify({
-          domain: project.domain, market: project.market, primary_language: project.primary_language,
-          enabled_languages: project.enabled_languages, current_company_name: profile.company_name,
-          user_supplied_industry_hint: profile.industry,
-        }) + '\n\nExisting company-evidence packets (may be empty if direct access was blocked):\n' + JSON.stringify(packets),
-        text: { format: { type: 'json_schema', name: 'riseklix_company_intelligence', strict: true, schema: COMPANY_SCHEMA } },
-      })
+1. Treat evidence in layers: (a) direct or rendered first-party captures, (b) indexed/search-discovered first-party evidence, (c) independent external evidence such as reputable directories, trade/industry sources, client/customer references, registries, press or other public corroboration.
+2. Prefer first-party evidence for what the company claims. Use independent sources to corroborate, challenge or qualify those claims where possible.
+3. Never infer a capability merely because a third-party page categorizes the company broadly. A material capability should be explicit in at least one relevant source.
+4. If first-party and external evidence disagree, preserve the disagreement in uncertainty instead of silently resolving it.
+5. Do not turn marketing adjectives into verified capabilities.
+6. Products are things sold or supplied. Services describe how customers engage, such as rental, implementation, installation, consulting, support or project delivery.
+7. Audiences must be supported by explicit customer, industry, use-case or commercial evidence; do not invent personas from generic category assumptions.
+8. Geographies should reflect evidence actually present. Never infer national or local coverage from a generic contact page.
+9. Every claim and evidence fact must cite source_urls. Use exact URLs from supplied evidence or retrieved search sources.
+10. 'supported' means supported by the evidence set, not independently proven truth. Weak or conflicting support belongs in uncertainty.
+11. The summary should be concise, commercial and neutral: what the company provides, who it appears to serve, where, and how customers buy.
+12. The research objective is not to make the company look good. It is to reconstruct what a serious buyer or AI system could verify publicly.`
+
+        const response = await openai.responses.create({
+          model,
+          reasoning: { effort: 'medium' },
+          ...(firecrawlKey
+            ? {}
+            : {
+                tools: [{ type: 'web_search_preview' as const, search_context_size: 'medium' as const }],
+                tool_choice: 'required' as const,
+                include: ['web_search_call.action.sources'],
+              }),
+          instructions: firecrawlKey
+            ? baseInstructions + '\n13. Web retrieval was performed before this reasoning call by Firecrawl. Do not browse again; reason only over the supplied retrieval packets.'
+            : baseInstructions + '\n13. FIRECRAWL_API_KEY is not configured, so use web search as the temporary outside-in retrieval fallback.',
+          input: 'Project context:\n' + JSON.stringify({
+            domain: project.domain,
+            market: project.market,
+            primary_language: project.primary_language,
+            enabled_languages: project.enabled_languages,
+            current_company_name: profile.company_name,
+            user_supplied_industry_hint: profile.industry,
+          }) + '\n\nExisting company-evidence packets:\n' + JSON.stringify(packets)
+            + '\n\nOutside-in retrieval packets:\n' + JSON.stringify(outsideInPackets),
+          text: { format: { type: 'json_schema', name: 'riseklix_company_intelligence', strict: true, schema: COMPANY_SCHEMA } },
+        })
 
         const raw = outputText(response)
         if (!raw) throw new Error('Company Intelligence provider returned no structured output')
         const interpreted = JSON.parse(raw) as CompanyIntelligence
 
-        const searchSources = collectSearchSources(response)
+        const searchSources = firecrawlSources.length
+          ? firecrawlSources.map((source) => ({ url: source.url, title: source.title }))
+          : collectSearchSources(response)
         const existingByUrl = new Map<string, string>()
         for (const source of (sources ?? [])) {
           const key = normalizeUrl(source.url)
@@ -252,7 +319,9 @@ Rules:
               captured_at: new Date().toISOString(),
               metadata: {
                 source_role: 'outside_in_verification',
-                acquisition_method: 'openai_web_search',
+                acquisition_method: firecrawlSources.length ? 'firecrawl_search' : 'openai_web_search_fallback',
+                retrieval_provider: firecrawlSources.length ? 'firecrawl' : 'openai',
+                text_sample: firecrawlSources.find((item) => normalizeUrl(item.url) === normalizeUrl(source.url))?.markdown.slice(0, 12_000) || '',
                 discovered_by_model: model,
               },
             }])
@@ -303,7 +372,7 @@ Rules:
 
       await ctx.supabase.from('research_jobs').update({
         status: 'succeeded', progress: 100, stage: 'company_intelligence_ready_for_review',
-        output: { model, profile_version_id: profile.id, supplied_source_count: packets.length, outside_in_source_count: storedSearchSources.length, company_name: interpreted.company_name, uncertainty_count: interpreted.uncertainty.length, usage: record(response).usage ?? null, review_required: true, outside_in_search: true },
+        output: { model, profile_version_id: profile.id, supplied_source_count: packets.length, outside_in_source_count: storedSearchSources.length, company_name: interpreted.company_name, uncertainty_count: interpreted.uncertainty.length, usage: record(response).usage ?? null, review_required: true, outside_in_search: true, retrieval_provider: firecrawlSources.length ? 'firecrawl' : 'openai_web_search_fallback' },
         completed_at: new Date().toISOString(),
       }).eq('id', job.id)
 
