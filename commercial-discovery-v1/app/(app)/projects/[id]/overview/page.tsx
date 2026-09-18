@@ -1,5 +1,6 @@
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
+import { AutopilotResumer } from '@/components/autopilot-resumer'
 
 function decisionLabel(value: string) {
   return value === 'fix' ? 'Fix' : value === 'investigate' ? 'Investigate' : value === 'monitor' ? 'Monitor' : value === 'healthy' || value === 'no_change' ? 'Healthy' : 'Review'
@@ -118,6 +119,7 @@ export default async function ProjectOverview({ params, searchParams }: { params
 
   return (
     <div className="project-page overview-page">
+      <AutopilotResumer projectId={id} active={project?.analysis_mode === 'autopilot' && profile?.status === 'approved' && project.status !== 'complete'} />
       {pageError && <div className="form-alert error" role="alert">{pageError}</div>}
       {pageMessage && <div className="form-alert success" role="status" aria-live="polite">{pageMessage}</div>}
       {project?.analysis_mode === 'autopilot' && (
