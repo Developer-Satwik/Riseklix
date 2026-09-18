@@ -19,7 +19,8 @@ export default async function CompanyProfilePage({ params, searchParams }: { par
   const query = await searchParams
   const supabase = await createClient()
 
-  const [{ data: profile }, { data: researchJobs }, { data: sources }] = await Promise.all([
+  const [{ data: project }, { data: profile }, { data: researchJobs }, { data: sources }] = await Promise.all([
+    supabase.from('projects').select('analysis_mode,status').eq('id', id).single(),
     supabase.from('company_profile_versions').select('*').eq('project_id', id).eq('is_current', true).single(),
     supabase.from('research_jobs').select('id,status,progress,stage,created_at,completed_at,error,input,output').eq('project_id', id).eq('job_type', 'company_research').order('created_at', { ascending: false }).limit(8),
     supabase.from('research_sources').select('id,url,title,source_type,captured_at,metadata').eq('project_id', id).order('captured_at', { ascending: false }).limit(20),
@@ -156,7 +157,9 @@ export default async function CompanyProfilePage({ params, searchParams }: { par
               <input type="hidden" name="project_id" value={id} />
               <div className="eyebrow">HUMAN APPROVAL GATE</div>
               <h3>{approved ? 'Company context approved.' : 'Does this materially describe the business correctly?'}</h3>
-              <p>Approval unlocks Buyer Situation generation. It does not certify every external claim as true.</p>
+              <p>{project?.analysis_mode === 'autopilot'
+                ? 'Approval starts the full automated evaluation. Riseklix will research Buyer Situations, competitors, buyer questions, AI observations and WHY findings before taking you to the report.'
+                : 'Approval unlocks Buyer Situation generation. It does not certify every external claim as true.'}</p>
               <PendingButton pendingLabel="Approving…" disabled={approved}>{approved ? 'Approved' : 'Approve company context'}</PendingButton>
             </form>
           </div>
@@ -190,9 +193,18 @@ export default async function CompanyProfilePage({ params, searchParams }: { par
 
       <section className="next-step-panel">
         <div className="eyebrow">NEXT</div>
-        <h2>{approved ? 'Now model the situations where buyers could legitimately consider you.' : 'Approve the company premise before anything downstream is allowed to look certain.'}</h2>
-        <p>{approved ? 'Riseklix will combine buyer, job, constraint, required capability, geography and commercial model before it creates any prompt wording.' : 'This gate protects every later benchmark from being built on the wrong understanding of the business.'}</p>
-        {approved && <Link href={'/projects/' + id + '/buyer-situations'} className="next-step-link">Open Buyer Situations →</Link>}
+        <h2>{approved
+          ? project?.analysis_mode === 'autopilot'
+            ? 'The company premise is confirmed. Let Riseklix finish the evaluation.'
+            : 'Now model the situations where buyers could legitimately consider you.'
+          : 'Approve the company premise before anything downstream is allowed to look certain.'}</h2>
+        <p>{approved
+          ? project?.analysis_mode === 'autopilot'
+            ? 'Autopilot continues through the commercial-discovery workflow without asking you to approve every intermediate object.'
+            : 'Riseklix will combine buyer, job, constraint, required capability, geography and commercial model before it creates any prompt wording.'
+          : 'This gate protects every later benchmark from being built on the wrong understanding of the business.'}</p>
+        {approved && project?.analysis_mode === 'autopilot' && <Link href={'/projects/' + id + '/processing'} className="next-step-link">View analysis progress →</Link>}
+        {approved && project?.analysis_mode !== 'autopilot' && <Link href={'/projects/' + id + '/buyer-situations'} className="next-step-link">Open Buyer Situations →</Link>}
       </section>
     </div>
   )
