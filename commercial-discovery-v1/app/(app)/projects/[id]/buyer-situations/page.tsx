@@ -6,6 +6,7 @@ import { discoverCompetitors } from './competitor-actions'
 import { approvePromptExpression, generatePromptExpressions, rejectPromptExpression } from './prompt-actions'
 import { PendingButton } from '@/components/pending-button'
 import { ResearchJobWatcher } from '@/components/research-job-watcher'
+import { runApprovedQuestions } from '../test/actions'
 
 function record(value: unknown) {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
@@ -104,7 +105,10 @@ export default async function BuyerSituationsPage({ params, searchParams }: { pa
             <h2>{approvedQuestionCount} approved question{approvedQuestionCount === 1 ? '' : 's'} can now be tested.</h2>
             <p>{testReadyIntentCount} Buyer Situation{testReadyIntentCount === 1 ? '' : 's'} contain both a buyer question and brand check. Your approved questions stay here for review; running them happens in the Test stage.</p>
           </div>
-          <Link href={`/projects/${id}/test`} className="spotlight-cta">Run approved questions <span aria-hidden="true">→</span></Link>
+          <form action={runApprovedQuestions}>
+            <input type="hidden" name="project_id" value={id} />
+            <PendingButton pendingLabel="Starting all AI tests…" className="spotlight-cta">Run approved questions <span aria-hidden="true">→</span></PendingButton>
+          </form>
         </section>
       )}
 
