@@ -100,6 +100,20 @@ export default async function ProjectOverview({ params, searchParams }: { params
     nextCta = 'Open Recheck'
   }
 
+  if (project?.analysis_mode === 'autopilot' && profile?.status === 'approved') {
+    if (project.status === 'complete') {
+      nextHref = `/projects/${id}/why`
+      nextTitle = 'The AI evaluation is ready to review.'
+      nextCopy = 'Riseklix completed the automated research, question testing and WHY analysis. You can inspect the evidence without having to approve each intermediate research object.'
+      nextCta = 'Review evaluation'
+    } else {
+      nextHref = benchmark ? `/projects/${id}/test` : `/projects/${id}/buyer-situations`
+      nextTitle = 'AI Autopilot is working through the evaluation.'
+      nextCopy = 'No approval is required from you right now. Riseklix will advance through Buyer Situations, competitor research, buyer questions, model testing and diagnosis automatically.'
+      nextCta = 'View progress'
+    }
+  }
+
   const attention = fixes + investigations
 
   return (
