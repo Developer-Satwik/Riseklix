@@ -217,8 +217,18 @@ export async function approveCompanyProfile(formData: FormData) {
     })
 
     if (autoError) {
-      const detail = await edgeFunctionErrorMessage(autoError)
-      redirect('/projects/' + parsed.data.project_id + '/overview?error=' + encodeURIComponent(detail))
+      const fallback = await supabase.functions.invoke('intent-suggestor', {
+        body: { project_id: parsed.data.project_id },
+      })
+
+      if (fallback.error || fallback.data?.error) {
+        const detail = fallback.error
+          ? await edgeFunctionErrorMessage(fallback.error)
+          : String(fallback.data?.message || fallback.data?.error || 'AI Autopilot could not start')
+        redirect('/projects/' + parsed.data.project_id + '/overview?error=' + encodeURIComponent(detail))
+      }
+
+      redirect('/projects/' + parsed.data.project_id + '/overview?message=' + encodeURIComponent('Company confirmed. AI Autopilot has started with Buyer Situation research.'))
     }
 
     const stage = String(autoData?.stage || 'starting')
