@@ -2,6 +2,7 @@ import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import { approveCompanyProfile, runCompanyResearch, saveCompanyProfile } from './actions'
 import { PendingButton } from '@/components/pending-button'
+import { ResearchJobWatcher } from '@/components/research-job-watcher'
 
 function listText(value: unknown) {
   return Array.isArray(value)
@@ -18,11 +19,22 @@ export default async function CompanyProfilePage({ params, searchParams }: { par
   const query = await searchParams
   const supabase = await createClient()
 
-  const [{ data: profile }, { data: job }, { data: sources }] = await Promise.all([
+  const [{ data: profile }, { data: researchJobs }, { data: sources }] = await Promise.all([
     supabase.from('company_profile_versions').select('*').eq('project_id', id).eq('is_current', true).single(),
-    supabase.from('research_jobs').select('id,status,progress,stage,created_at,completed_at,error').eq('project_id', id).eq('job_type', 'company_research').order('created_at', { ascending: false }).limit(1).maybeSingle(),
-    supabase.from('research_sources').select('id,url,title,source_type,captured_at,metadata').eq('project_id', id).order('captured_at', { ascending: false }).limit(12),
+    supabase.from('research_jobs').select('id,status,progress,stage,created_at,completed_at,error,input,output').eq('project_id', id).eq('job_type', 'company_research').order('created_at', { ascending: false }).limit(8),
+    supabase.from('research_sources').select('id,url,title,source_type,captured_at,metadata').eq('project_id', id).order('captured_at', { ascending: false }).limit(20),
   ])
+
+  const job = researchJobs?.[0] ?? null
+  const latestCrawlerJob = (researchJobs ?? []).find((item) => {
+    const input = item.input && typeof item.input === 'object' && !Array.isArray(item.input) ? item.input as Record<string, unknown> : {}
+    return typeof input.domain === 'string'
+  }) ?? null
+  const crawlerOutput = latestCrawlerJob?.output && typeof latestCrawlerJob.output === 'object' && !Array.isArray(latestCrawlerJob.output)
+    ? latestCrawlerJob.output as Record<string, unknown>
+    : {}
+  const directAccessStatus = typeof crawlerOutput.direct_fetch_status === 'number' ? crawlerOutput.direct_fetch_status : null
+  const directAccessIssue = crawlerOutput.direct_access_issue === true
 
   const error = typeof query.error === 'string' ? query.error : null
   const message = typeof query.message === 'string' ? query.message : null
@@ -35,6 +47,7 @@ export default async function CompanyProfilePage({ params, searchParams }: { par
 
   return (
     <div className="project-page profile-page">
+      <ResearchJobWatcher active={job?.status === 'running'} />
       <section className="page-header compact">
         <div>
           <div className="eyebrow">COMPANY INTELLIGENCE</div>
@@ -45,6 +58,17 @@ export default async function CompanyProfilePage({ params, searchParams }: { par
 
       {error && <div className="form-alert error" role="alert">{error}</div>}
       {message && <div className="form-alert success" role="status" aria-live="polite">{message}</div>}
+
+      {directAccessIssue && (
+        <section className="crawl-access-warning">
+          <div>
+            <div className="eyebrow">TECHNICAL DISCOVERABILITY WARNING</div>
+            <h2>Direct site access returned HTTP {directAccessStatus ?? 'blocked'}.</h2>
+            <p>Riseklix is continuing through indexed and outside-in web research, so the analysis does not stop here. But this should be investigated early: a block against our crawler does <strong>not</strong> prove that Google, ChatGPT or other AI/search crawlers are blocked, so we should verify robots/WAF behavior for the crawlers that matter before calling it a causal AEO issue.</p>
+          </div>
+          <span>Verify crawler access</span>
+        </section>
+      )}
 
       <section className="profile-research-strip">
         <div>
