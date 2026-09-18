@@ -1,6 +1,8 @@
 import { withSupabase } from 'npm:@supabase/server'
 import OpenAI from 'npm:openai'
 
+declare const EdgeRuntime: { waitUntil(promise: Promise<unknown>): void }
+
 type RequestBody = {
   project_id?: string
   intent_id?: string
@@ -85,8 +87,40 @@ const handler = {
     const idempotencyKey = `prompt-expression:${intent.id}:v${intent.version}:${languages.join(',')}:${model}`
 
     if (!body.regenerate) {
-      const existing = await ctx.supabase.from('research_jobs').select('id,status,progress,stage,output').eq('project_id', project.id).eq('idempotency_key', idempotencyKey).maybeSingle()
-      if (existing.data?.status === 'succeeded') return json({ job: existing.data, reused: true, generated: Number(record(existing.data.output).generated ?? 0) })
+      const existing = await ctx.supabase
+        .from('research_jobs')
+        .select('id,status,progress,stage,output,error,created_at')
+        .eq('project_id', project.id)
+        .eq('idempotency_key', idempotencyKey)
+        .maybeSingle()
+
+      if (existing.data?.status === 'succeeded') {
+        return json({ job: existing.data, reused: true, generated: Number(record(existing.data.output).generated ?? 0) })
+      }
+
+      if (existing.data?.status === 'running') {
+        const createdAt = new Date(existing.data.created_at).getTime()
+        const ageMs = Number.isFinite(createdAt) ? Date.now() - createdAt : 0
+        if (ageMs < 90_000) {
+          return json({
+            job: existing.data,
+            pending: true,
+            message: 'Buyer-question generation is already running for this situation.',
+          }, 202)
+        }
+      }
+
+      if (existing.data) {
+        await ctx.supabase.from('research_jobs').update({
+          status: existing.data.status === 'running' ? 'failed' : existing.data.status,
+          stage: existing.data.status === 'running' ? 'prompt_generation_interrupted' : existing.data.stage,
+          error: existing.data.status === 'running'
+            ? { message: 'Previous question-generation request did not finish cleanly.' }
+            : existing.data.error,
+          completed_at: existing.data.status === 'running' ? new Date().toISOString() : null,
+          idempotency_key: idempotencyKey + ':previous:' + existing.data.id,
+        }).eq('id', existing.data.id)
+      }
     }
 
     const userId = String(ctx.userClaims?.id ?? ctx.jwtClaims?.sub ?? '') || null
@@ -105,8 +139,9 @@ const handler = {
 
     if (jobError || !job) return json({ error: jobError?.message ?? 'Could not start prompt generation' }, 400)
 
-    try {
-      const RESPONSE_SCHEMA = {
+    const generationTask = (async () => {
+      try {
+        const RESPONSE_SCHEMA = {
         type: 'object',
         additionalProperties: false,
         required: ['summary', 'expressions'],
@@ -114,8 +149,8 @@ const handler = {
           summary: { type: 'string' },
           expressions: {
             type: 'array',
-            minItems: languages.length * 2,
-            maxItems: languages.length * 4,
+            minItems: languages.length * 3,
+            maxItems: languages.length * 3,
             items: {
               type: 'object', additionalProperties: false,
               required: ['language','mode','variant_no','prompt_text','rationale'],
@@ -136,8 +171,8 @@ const handler = {
       const openai = new OpenAI({ apiKey })
       const response = await openai.responses.create({
         model,
-        reasoning: { effort: 'medium' },
-        instructions: `You are the Prompt Expression Generator for Riseklix Commercial Discovery.\n\nThe Buyer Intent is already approved. Your job is only to express that same commercial situation in natural buyer language for controlled AI observation.\n\nRules:\n1. Do not create new buyer intents or change the commercial situation.\n2. Generate exactly two UNAIDED expressions and one AIDED expression per enabled language where possible.\n3. UNAIDED means the target company name and domain must NOT appear. The prompt should ask naturally for providers, options, a shortlist, comparison or recommendation in the buying situation.\n4. AIDED means ask whether the target company is a credible fit for the same situation, what it appears to offer, and any evidence/limitations relevant to that fit. Do not tell the model to recommend the company.\n5. Do not mention AEO, GEO, AI visibility, prompt tracking, testing or this research methodology in the buyer wording.\n6. Do not stuff category terms. Write like a real procurement, operations, owner or commercial buyer would ask.\n7. Language variants must preserve intent equivalence, not literal translation. Hinglish should sound naturally code-switched; Hindi should be natural Hindi for the buyer context.\n8. Preserve hard constraints in every expression. Important constraints should normally remain; contextual constraints may vary naturally.\n9. Do not insert competitor names in either mode.\n10. Keep each expression self-contained because every observation may run in a fresh session.`,
+        reasoning: { effort: 'none' },
+        instructions: `You are the Prompt Expression Generator for Riseklix Commercial Discovery.\n\nThe Buyer Intent is already approved. Your job is only to express that same commercial situation in natural buyer language for controlled AI observation.\n\nRules:\n1. Do not create a new commercial intent or change the buying decision.\n2. Generate EXACTLY two UNAIDED buyer questions and one AIDED brand-check question per enabled language.\n3. Every question must sound like something a normal buyer could genuinely type into ChatGPT, Gemini, Claude or Perplexity. One clear sentence is preferred.\n4. Use plain language. Avoid internal terms such as buyer intent, required capability, hard constraint, evidence set, commercial model, provider universe or benchmark.\n5. UNAIDED means the target company name and domain must NOT appear. Ask naturally for providers, options, a shortlist, comparison or recommendation.\n6. The two unaided questions should preserve the same decision but differ naturally: one can be broad discovery and one can foreground the most commercially important constraint.\n7. AIDED means name the target company and ask whether it is a credible fit for that same buying situation and why. Do not instruct the model to recommend it.\n8. Do not mention AEO, GEO, AI visibility, prompt tracking, testing or Riseklix.\n9. Preserve every hard constraint, but integrate it naturally instead of dumping a checklist.\n10. Do not insert competitor names in either mode.\n11. Language variants must preserve intent equivalence, not literal translation.\n12. Keep each question self-contained because every model run starts in a fresh session.`,
         input: `Target company: ${profile.company_name}\nMarket: ${project.market}\nEnabled languages: ${languages.join(', ')}\nApproved Buyer Intent:\n${JSON.stringify(intent)}`,
         text: { format: { type: 'json_schema', name: 'riseklix_prompt_expressions', strict: true, schema: RESPONSE_SCHEMA } },
       })
@@ -187,12 +222,25 @@ const handler = {
 
       await ctx.supabase.from('audit_events').insert({ workspace_id: project.workspace_id, project_id: project.id, actor_user_id: userId, event_type: 'prompt_expressions_generated', entity_type: 'buyer_intent', entity_id: intent.id, payload: { research_job_id: job.id, model, generated: inserted?.length ?? 0, languages } })
 
-      return json({ job: { id: job.id, status: 'succeeded', stage: 'prompt_expressions_ready_for_review' }, summary: parsed.summary, generated: inserted?.length ?? 0, expressions: inserted, review_required: true })
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown prompt-generation error'
-      await ctx.supabase.from('research_jobs').update({ status: 'failed', stage: 'prompt_generation_failed', error: { message, model }, completed_at: new Date().toISOString() }).eq('id', job.id)
-      return json({ error: message, job_id: job.id }, 422)
-    }
+        return
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Unknown prompt-generation error'
+        await ctx.supabase.from('research_jobs').update({
+          status: 'failed',
+          stage: 'prompt_generation_failed',
+          error: { message, model },
+          completed_at: new Date().toISOString(),
+        }).eq('id', job.id)
+      }
+    })()
+
+    EdgeRuntime.waitUntil(generationTask)
+
+    return json({
+      job: { id: job.id, status: 'running', stage: 'generating_prompt_expressions' },
+      pending: true,
+      message: 'Exact buyer questions are being generated in the background.',
+    }, 202)
   }),
 }
 
