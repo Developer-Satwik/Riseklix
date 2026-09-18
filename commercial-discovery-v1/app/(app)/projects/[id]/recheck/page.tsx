@@ -46,8 +46,8 @@ export default async function RecheckPage({ params, searchParams }: { params: Pr
         </div>
       </section>
 
-      {error && <div className="form-alert error">{error}</div>}
-      {message && <div className="form-alert success">{message}</div>}
+      {error && <div className="form-alert error" role="alert">{error}</div>}
+      {message && <div className="form-alert success" role="status" aria-live="polite">{message}</div>}
 
       {!baseline && (
         <section className="baseline-builder">
