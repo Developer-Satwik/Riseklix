@@ -134,7 +134,7 @@ function observationSummary(runs: Array<Record<string, unknown>>, targetName: st
   }
 }
 
-export default {
+const handler = {
   fetch: withSupabase({ auth: 'user' }, async (req, ctx) => {
     if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405)
 
@@ -339,3 +339,5 @@ export default {
     return json({ benchmark_id: benchmark.id, generated, skipped, current_findings: currentCount.count ?? 0, intents_with_captures: intentIds.length, complete })
   }),
 }
+
+export default handler
