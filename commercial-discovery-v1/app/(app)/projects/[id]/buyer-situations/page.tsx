@@ -61,6 +61,15 @@ export default async function BuyerSituationsPage({ params, searchParams }: { pa
       </section>
 
       {!!intents?.length && (
+        <section className="intent-summary-strip" aria-label="Buyer Situation review status">
+          <div><span>Awaiting review</span><strong>{candidateCount}</strong></div>
+          <div><span>Approved</span><strong>{approvedCount}</strong></div>
+          <div><span>Competitor sets ready</span><strong>{new Set((competitors ?? []).map((item) => item.buyer_intent_id)).size}</strong></div>
+          <div><span>Question sets started</span><strong>{new Set((prompts ?? []).map((item) => item.buyer_intent_id)).size}</strong></div>
+        </section>
+      )}
+
+      {!!intents?.length && (
         <div className="intent-list review-intents">
           {intents.map((intent) => {
             const intentCompetitors = (competitors ?? []).filter((competitor) => competitor.buyer_intent_id === intent.id)
@@ -80,7 +89,7 @@ export default async function BuyerSituationsPage({ params, searchParams }: { pa
                 </div>
 
                 <details className="intent-details">
-                  <summary>Intent evidence + constraints</summary>
+                  <summary>Why Riseklix thinks this situation belongs here</summary>
                   <p>{intent.provenance_reason || 'No provenance rationale recorded.'}</p>
                   <div className="intent-detail-columns">
                     <div><small>Constraints</small><pre>{JSON.stringify(intent.constraints ?? [], null, 2)}</pre></div>
@@ -96,8 +105,22 @@ export default async function BuyerSituationsPage({ params, searchParams }: { pa
                 )}
 
                 {intent.status === 'approved' && (
-                  <>
-                    <section className="competitor-section">
+                  <div className="intent-workbench">
+                    <div className="intent-workbench-summary">
+                      <div>
+                        <span>Competitive set</span><strong>{intentCompetitors.length ? intentCompetitors.length + ' candidates' : 'Not generated'}</strong>
+                      </div>
+                      <div>
+                        <span>Question expressions</span><strong>{intentPrompts.length ? approvedPrompts + '/' + intentPrompts.length + ' approved' : 'Not generated'}</strong>
+                      </div>
+                    </div>
+
+                    <details className="workflow-disclosure">
+                      <summary>
+                        <span><strong>Competitor universe</strong><small>Who can realistically compete for this buying decision?</small></span>
+                        <span>{intentCompetitors.length ? intentCompetitors.length : '—'}</span>
+                      </summary>
+                      <section className="competitor-section">
                       <div className="competitor-heading">
                         <div>
                           <div className="eyebrow">INTENT-SPECIFIC COMPETITOR UNIVERSE</div>
@@ -142,9 +165,15 @@ export default async function BuyerSituationsPage({ params, searchParams }: { pa
                           })}
                         </div>
                       )}
-                    </section>
+                      </section>
+                    </details>
 
-                    <section className="prompt-section">
+                    <details className="workflow-disclosure">
+                      <summary>
+                        <span><strong>Question expressions</strong><small>How this intent will be tested without changing its commercial meaning.</small></span>
+                        <span>{intentPrompts.length ? approvedPrompts + '/' + intentPrompts.length : '—'}</span>
+                      </summary>
+                      <section className="prompt-section">
                       <div className="prompt-heading">
                         <div>
                           <div className="eyebrow">CONTROLLED QUESTION EXPRESSIONS</div>
@@ -177,8 +206,9 @@ export default async function BuyerSituationsPage({ params, searchParams }: { pa
                           ))}
                         </div>
                       )}
-                    </section>
-                  </>
+                      </section>
+                    </details>
+                  </div>
                 )}
               </article>
             )
