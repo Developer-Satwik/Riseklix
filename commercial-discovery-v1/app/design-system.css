@@ -1936,3 +1936,44 @@ button[aria-busy="true"]>span:last-child{display:inline-flex;align-items:center}
 @media(max-width:720px){
   .analysis-mode-picker{grid-template-columns:1fr}
 }
+
+
+.autopilot-banner{
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:22px;
+  margin:0 0 16px;
+  padding:15px 17px;
+  border:1px solid #4f472f;
+  border-radius:10px;
+  background:#17150f;
+}
+.autopilot-banner .eyebrow{color:var(--gold)}
+.autopilot-banner strong{
+  display:block;
+  margin-top:5px;
+  font:400 20px/1.1 var(--serif);
+}
+.autopilot-banner p{
+  max-width:800px;
+  margin:6px 0 0;
+  color:var(--subtle);
+  font-size:10px;
+  line-height:1.5;
+}
+.autopilot-banner>span{
+  flex:none;
+  border:1px solid #605537;
+  border-radius:999px;
+  padding:5px 7px;
+  font-size:8px;
+  text-transform:uppercase;
+  letter-spacing:.07em;
+  color:#d5c498;
+}
+
+@media(max-width:700px){
+  .autopilot-banner{display:block}
+  .autopilot-banner>span{display:inline-block;margin-top:11px}
+}
