@@ -1,6 +1,6 @@
-import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
+import { WorkspaceSidebar } from '@/components/workspace-sidebar'
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const supabase = await createClient()
@@ -10,17 +10,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   return (
     <div className="app-frame">
-      <aside className="workspace-sidebar">
-        <Link href="/projects" className="wordmark"><span>R</span> RISEKLIX</Link>
-        <nav>
-          <Link href="/projects">Projects</Link>
-          <Link href="/projects/new">New analysis</Link>
-        </nav>
-        <div className="sidebar-bottom">
-          <small>{typeof user.email === 'string' ? user.email : 'Signed in'}</small>
-          <form action="/auth/signout" method="post"><button>Sign out</button></form>
-        </div>
-      </aside>
+      <WorkspaceSidebar email={typeof user.email === 'string' ? user.email : 'Signed in'} />
       <main className="workspace-main">{children}</main>
     </div>
   )
