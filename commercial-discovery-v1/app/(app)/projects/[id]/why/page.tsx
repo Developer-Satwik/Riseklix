@@ -28,6 +28,10 @@ export default async function WhyPage({ params, searchParams }: { params: Promis
     : 0
   const intentById = new Map((intents ?? []).map((intent) => [intent.id, intent]))
   const sourceById = new Map((sources ?? []).map((source) => [source.id, source]))
+  const fixCount = (findings ?? []).filter((finding) => finding.decision === 'fix').length
+  const investigateCount = (findings ?? []).filter((finding) => finding.decision === 'investigate').length
+  const monitorCount = (findings ?? []).filter((finding) => finding.decision === 'monitor').length
+  const healthyCount = (findings ?? []).filter((finding) => finding.decision === 'healthy' || finding.decision === 'no_change').length
 
   return (
     <div className="project-page">
@@ -57,6 +61,15 @@ export default async function WhyPage({ params, searchParams }: { params: Promis
           </form>
         )}
       </section>
+
+      {!!findings?.length && (
+        <section className="why-summary-strip" aria-label="WHY decision summary">
+          <div className="fix"><span>Fix</span><strong>{fixCount}</strong><small>Evidence supports testing a change.</small></div>
+          <div className="investigate"><span>Investigate</span><strong>{investigateCount}</strong><small>Meaningful signal, more evidence needed.</small></div>
+          <div className="monitor"><span>Monitor</span><strong>{monitorCount}</strong><small>Too unstable to justify work yet.</small></div>
+          <div className="healthy"><span>Healthy</span><strong>{healthyCount}</strong><small>No change justified right now.</small></div>
+        </section>
+      )}
 
       <div className="finding-stack why-findings">
         {(findings ?? []).map((finding) => {
