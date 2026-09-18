@@ -36,7 +36,7 @@ export default async function OnboardingPage({ searchParams }: { searchParams: P
         <Link href="/" className="wordmark brand-wordmark auth-brand" aria-label="Riseklix"><span className="brand-mark" aria-hidden="true" /><strong>RISEKLIX</strong></Link>
         <div className="eyebrow">ONE-TIME SETUP</div>
         <h1>Set up your workspace.</h1>
-        <p>Two details, then you can analyze any company. Your organization is the team using Riseklix; it does not have to be the company you analyze.</p>
+        <p>Three quick defaults, then you can analyze any company. Your organization is the team using Riseklix; it does not have to be the company you analyze.</p>
 
         {errorMessage && <div className="form-alert error" role="alert">{errorMessage}</div>}
 
@@ -61,7 +61,7 @@ export default async function OnboardingPage({ searchParams }: { searchParams: P
               <option>Singapore</option>
               <option>Australia</option>
             </select>
-            <small className="onboarding-field-note">Prefilled from your approximate country at signup. Change it if most of your research is for another market.</small>
+            <small className="onboarding-field-note">Prefilled from your approximate country. We only save the market you choose, not your precise location. Change it if most of your research is for another market.</small>
           </label>
 
           <div className="onboarding-note">
