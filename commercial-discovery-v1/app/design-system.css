@@ -1474,3 +1474,30 @@ button[aria-busy="true"]>span:last-child{display:inline-flex;align-items:center}
 @media(max-width:980px){
   .sidebar-logo-link img{width:68px}
 }
+
+
+.competitor-job-state{
+  display:inline-flex;
+  align-items:center;
+  gap:7px;
+  margin-top:9px;
+  padding:6px 8px;
+  border:1px solid #4b412e;
+  border-radius:999px;
+  background:#17140f;
+  color:var(--muted);
+}
+.competitor-job-state span{
+  font-size:8px;
+  text-transform:uppercase;
+  letter-spacing:.08em;
+  color:var(--gold);
+}
+.competitor-job-state strong{
+  font-size:9px;
+  font-weight:650;
+}
+.competitor-job-state small{
+  font:9px var(--mono);
+  color:var(--faint);
+}
