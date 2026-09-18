@@ -20,10 +20,11 @@ export default async function BuyerSituationsPage({ params, searchParams }: { pa
   const query = await searchParams
   const supabase = await createClient()
 
-  const [{ data: intents }, { data: profile }, { data: latestJob }, { data: competitors }, { data: prompts }] = await Promise.all([
+  const [{ data: intents }, { data: profile }, { data: latestJob }, { data: competitorJobs }, { data: competitors }, { data: prompts }] = await Promise.all([
     supabase.from('buyer_intents').select('id,intent_key,title,buyer,job_to_be_done,provenance,provenance_reason,priority,status,commercial_model,geography,constraints,required_capabilities,purchase_stage,language_policy,source_refs').eq('project_id', id).order('created_at'),
     supabase.from('company_profile_versions').select('status,company_name').eq('project_id', id).eq('is_current', true).single(),
     supabase.from('research_jobs').select('id,status,stage,progress,output,error,created_at').eq('project_id', id).eq('job_type', 'intent_generation').order('created_at', { ascending: false }).limit(1).maybeSingle(),
+    supabase.from('research_jobs').select('id,status,stage,progress,error,input,created_at').eq('project_id', id).eq('job_type', 'competitor_discovery').order('created_at', { ascending: false }).limit(50),
     supabase.from('competitor_candidates').select('id,buyer_intent_id,company_name,domain,relationship,discovery_layer,status,matched_constraints,relaxed_constraints,evidence,evidence_strength,rationale,is_current').eq('project_id', id).eq('is_current', true).order('discovery_layer').order('company_name'),
     supabase.from('prompt_expressions').select('id,buyer_intent_id,language,mode,variant_no,prompt_text,status,is_frozen,version').eq('project_id', id).order('language').order('mode').order('variant_no'),
   ])
@@ -39,7 +40,7 @@ export default async function BuyerSituationsPage({ params, searchParams }: { pa
 
   return (
     <div className="project-page">
-      <ResearchJobWatcher active={latestJob?.status === 'running'} />
+      <ResearchJobWatcher active={latestJob?.status === 'running' || (competitorJobs ?? []).some((job) => job.status === 'running')} />
       <section className="page-header compact">
         <div>
           <div className="eyebrow">WHERE SHOULD WE BE CONSIDERED?</div>
@@ -82,6 +83,13 @@ export default async function BuyerSituationsPage({ params, searchParams }: { pa
             const intentCompetitors = (competitors ?? []).filter((competitor) => competitor.buyer_intent_id === intent.id)
             const intentPrompts = (prompts ?? []).filter((prompt) => prompt.buyer_intent_id === intent.id)
             const approvedPrompts = intentPrompts.filter((prompt) => prompt.status === 'approved').length
+            const intentCompetitorJob = (competitorJobs ?? []).find((job) => {
+              const input = record(job.input)
+              return input.intent_id === intent.id
+            })
+            const competitorJobError = intentCompetitorJob?.error && typeof intentCompetitorJob.error === 'object' && !Array.isArray(intentCompetitorJob.error)
+              ? String((intentCompetitorJob.error as Record<string, unknown>).message || '')
+              : ''
 
             return (
               <article key={intent.id} className={intent.status === 'rejected' ? 'intent-rejected' : ''}>
@@ -133,6 +141,16 @@ export default async function BuyerSituationsPage({ params, searchParams }: { pa
                           <div className="eyebrow">INTENT-SPECIFIC COMPETITOR UNIVERSE</div>
                           <h3>{intentCompetitors.length ? `${intentCompetitors.length} evidence-backed candidates` : 'No competitor set generated yet.'}</h3>
                           <p>Hard constraints are never relaxed. L0 is direct fit; L1–L3 are controlled broadening; L4 is a substitute; L5 is a benchmark.</p>
+                          {intentCompetitorJob?.status === 'running' && (
+                            <div className="competitor-job-state" role="status" aria-live="polite">
+                              <span>Researching</span>
+                              <strong>{intentCompetitorJob.stage?.replaceAll('_', ' ') || 'competitor universe'}</strong>
+                              <small>{intentCompetitorJob.progress}%</small>
+                            </div>
+                          )}
+                          {intentCompetitorJob?.status === 'failed' && competitorJobError && (
+                            <div className="inline-job-error" role="alert">{competitorJobError}</div>
+                          )}
                         </div>
                         <form action={discoverCompetitors}>
                           <input type="hidden" name="project_id" value={id} />
