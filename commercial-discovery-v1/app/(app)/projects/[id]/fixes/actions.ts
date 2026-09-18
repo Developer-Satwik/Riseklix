@@ -19,6 +19,15 @@ const routeSchema = blueprintSchema.extend({
   route: z.enum(['diy', 'internal_team', 'expert', 'managed']),
 })
 
+const taskStatusSchema = z.object({
+  project_id: z.string().uuid(),
+  blueprint_id: z.string().uuid(),
+  task_id: z.string().uuid(),
+  status: z.enum(['not_started', 'in_progress', 'ready_for_review', 'verified']),
+  delivery_url: z.string().trim().url().optional().or(z.literal('')),
+  notes: z.string().trim().max(2000).optional().or(z.literal('')),
+})
+
 async function auth() {
   const supabase = await createClient()
   const { data, error } = await supabase.auth.getClaims()
@@ -162,4 +171,95 @@ export async function chooseExecutionRoute(formData: FormData) {
     managed: 'Let Riseklix handle it',
   }
   redirect(`/projects/${parsed.data.project_id}/fixes?message=${encodeURIComponent(`Execution path selected: ${routeLabel[parsed.data.route]}`)}`)
+}
+
+
+export async function updateImplementationTask(formData: FormData) {
+  const parsed = taskStatusSchema.safeParse({
+    project_id: formData.get('project_id'),
+    blueprint_id: formData.get('blueprint_id'),
+    task_id: formData.get('task_id'),
+    status: formData.get('status'),
+    delivery_url: formData.get('delivery_url') || '',
+    notes: formData.get('notes') || '',
+  })
+  if (!parsed.success) redirect('/projects?error=Invalid+delivery+update')
+
+  const { supabase, userId } = await auth()
+  const { data: task, error: taskError } = await supabase
+    .from('implementation_tasks')
+    .select('id,workspace_id,project_id,blueprint_id,route,status,delivery_evidence')
+    .eq('id', parsed.data.task_id)
+    .eq('project_id', parsed.data.project_id)
+    .eq('blueprint_id', parsed.data.blueprint_id)
+    .single()
+
+  if (taskError || !task) {
+    redirect('/projects/' + parsed.data.project_id + '/fixes?error=' + encodeURIComponent('Implementation task could not be loaded'))
+  }
+
+  const evidence = Array.isArray(task.delivery_evidence) ? [...task.delivery_evidence] : []
+  if (parsed.data.delivery_url || parsed.data.notes) {
+    evidence.push({
+      url: parsed.data.delivery_url || null,
+      notes: parsed.data.notes || null,
+      submitted_at: new Date().toISOString(),
+      submitted_by: userId,
+    })
+  }
+
+  const verificationResult = parsed.data.status === 'verified'
+    ? {
+        status: 'verified',
+        verified_at: new Date().toISOString(),
+        verified_by: userId,
+        method: 'manual_v1',
+        note: 'Delivery verification only. This does not establish AI outcome impact.',
+      }
+    : {}
+
+  const { error: updateError } = await supabase.from('implementation_tasks').update({
+    status: parsed.data.status,
+    delivery_evidence: evidence,
+    verification_result: verificationResult,
+    verified_by: parsed.data.status === 'verified' ? userId : null,
+    verified_at: parsed.data.status === 'verified' ? new Date().toISOString() : null,
+    updated_at: new Date().toISOString(),
+  }).eq('id', task.id)
+
+  if (updateError) {
+    redirect('/projects/' + parsed.data.project_id + '/fixes?error=' + encodeURIComponent(updateError.message))
+  }
+
+  const blueprintStatus =
+    parsed.data.status === 'verified' ? 'verified'
+      : parsed.data.status === 'ready_for_review' ? 'implemented'
+        : parsed.data.status === 'in_progress' ? 'in_progress'
+          : 'approved'
+
+  await supabase.from('blueprints').update({
+    status: blueprintStatus,
+    updated_at: new Date().toISOString(),
+  }).eq('id', parsed.data.blueprint_id)
+
+  await supabase.from('audit_events').insert({
+    workspace_id: task.workspace_id,
+    project_id: parsed.data.project_id,
+    actor_user_id: userId,
+    event_type: 'implementation_status_changed',
+    entity_type: 'blueprint',
+    entity_id: parsed.data.blueprint_id,
+    payload: {
+      task_id: task.id,
+      route: task.route,
+      previous_status: task.status,
+      status: parsed.data.status,
+      delivery_url: parsed.data.delivery_url || null,
+      delivery_note_supplied: Boolean(parsed.data.notes),
+      impact_not_measured: true,
+    },
+  })
+
+  const label = parsed.data.status.replaceAll('_', ' ')
+  redirect('/projects/' + parsed.data.project_id + '/fixes?message=' + encodeURIComponent('Delivery status updated: ' + label))
 }
