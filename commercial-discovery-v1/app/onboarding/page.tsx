@@ -1,3 +1,4 @@
+import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { completeOnboarding } from './actions'
@@ -30,7 +31,7 @@ export default async function OnboardingPage({ searchParams }: { searchParams: P
   return (
     <main className="auth-shell onboarding-shell">
       <section className="auth-card onboarding-card">
-        <a href="/" className="wordmark brand-wordmark auth-brand" aria-label="Riseklix"><span className="brand-mark" aria-hidden="true" /><strong>RISEKLIX</strong></a>
+        <Link href="/" className="wordmark brand-wordmark auth-brand" aria-label="Riseklix"><span className="brand-mark" aria-hidden="true" /><strong>RISEKLIX</strong></Link>
         <div className="eyebrow">ONE-TIME SETUP</div>
         <h1>Set up your workspace.</h1>
         <p>Two details, then you can analyze any company. Your organization is the team using Riseklix; it does not have to be the company you analyze.</p>
