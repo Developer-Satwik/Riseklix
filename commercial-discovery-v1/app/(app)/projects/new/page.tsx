@@ -25,7 +25,7 @@ export default async function NewProjectPage({
     : { data: null }
 
   const defaultMode = profile?.default_analysis_mode === 'manual' ? 'manual' : 'autopilot'
-  const defaultMarket = profile?.default_market || 'India'
+  const defaultMarket = profile?.default_market || 'Global'
   const defaultLanguage = profile?.default_primary_language || 'English'
 
   return (
@@ -67,6 +67,7 @@ export default async function NewProjectPage({
             <div className="new-project-secondary new-project-secondary-three">
               <label>Primary market
                 <select name="market" defaultValue={defaultMarket}>
+                  <option>Global</option>
                   <option>India</option>
                   <option>United States</option>
                   <option>United Kingdom</option>
