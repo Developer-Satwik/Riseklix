@@ -34,10 +34,11 @@ export function WorkspaceSidebar({
   useEffect(() => {
     const stored = window.localStorage.getItem(SIDEBAR_STORAGE_KEY)
     const nextCollapsed = stored === 'true'
-    setCollapsed(nextCollapsed)
     document.documentElement.dataset.sidebarCollapsed = String(nextCollapsed)
 
+    const frame = window.requestAnimationFrame(() => setCollapsed(nextCollapsed))
     return () => {
+      window.cancelAnimationFrame(frame)
       delete document.documentElement.dataset.sidebarCollapsed
     }
   }, [])
