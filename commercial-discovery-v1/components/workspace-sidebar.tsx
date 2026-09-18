@@ -3,16 +3,35 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 
-export function WorkspaceSidebar({ email }: { email: string }) {
+export function WorkspaceSidebar({
+  email,
+  displayName,
+  organization,
+}: {
+  email: string
+  displayName: string
+  organization: string
+}) {
   const pathname = usePathname()
   const projectsActive = pathname === '/projects' || pathname.startsWith('/projects/')
   const newActive = pathname === '/projects/new'
+  const initials = displayName
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join('') || 'R'
 
   return (
     <aside className="workspace-sidebar">
       <div>
         <Link href="/projects" className="wordmark brand-wordmark sidebar-logo-link" aria-label="Riseklix"><span className="brand-mark" aria-hidden="true" /><strong>RISEKLIX</strong></Link>
         <div className="sidebar-product">Commercial Discovery</div>
+      </div>
+
+      <div className="sidebar-workspace">
+        <span>Organization</span>
+        <strong title={organization}>{organization}</strong>
       </div>
 
       <nav aria-label="Workspace">
@@ -32,7 +51,13 @@ export function WorkspaceSidebar({ email }: { email: string }) {
       </div>
 
       <div className="sidebar-bottom">
-        <small title={email}>{email}</small>
+        <div className="sidebar-user">
+          <span className="sidebar-avatar" aria-hidden="true">{initials}</span>
+          <div>
+            <strong>{displayName}</strong>
+            <small title={email}>{email}</small>
+          </div>
+        </div>
         <form action="/auth/signout" method="post"><button>Sign out</button></form>
       </div>
     </aside>
