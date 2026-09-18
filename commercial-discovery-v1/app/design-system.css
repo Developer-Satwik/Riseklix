@@ -1114,3 +1114,76 @@ button:disabled{cursor:not-allowed}
   .workspace-pulse>div:nth-child(2){border-right:0}
   .workspace-pulse>div:last-child{grid-column:1/-1;border-top:1px solid var(--border);border-right:0;padding-left:0}
 }
+
+
+/* Public product experience — product truth before marketing chrome */
+.landing-nav-actions{display:flex;align-items:center;gap:12px}
+.landing-nav-actions>span{font-size:10px;color:var(--subtle)}
+.landing-product-glimpse{
+  width:min(900px,100%);margin-top:62px;border:1px solid var(--border);border-radius:14px;
+  background:rgba(20,20,22,.82);box-shadow:var(--shadow);overflow:hidden
+}
+.glimpse-rail{
+  min-height:42px;display:flex;align-items:center;gap:4px;padding:0 10px;
+  border-bottom:1px solid var(--border);overflow-x:auto
+}
+.glimpse-rail span{font-size:9px;color:var(--faint);padding:7px 9px;border-radius:7px;white-space:nowrap}
+.glimpse-rail span.active{color:var(--text);background:var(--panel-raised)}
+.glimpse-card{padding:25px}
+.glimpse-card h2{
+  max-width:760px;font:400 clamp(26px,3.3vw,40px)/1.07 var(--serif);
+  letter-spacing:-.035em;margin:10px 0 22px
+}
+.glimpse-evidence{
+  display:grid;grid-template-columns:repeat(3,1fr);
+  border-top:1px solid var(--border);border-bottom:1px solid var(--border)
+}
+.glimpse-evidence>div{padding:14px 14px 14px 0;border-right:1px solid var(--border)}
+.glimpse-evidence>div+div{padding-left:14px}
+.glimpse-evidence>div:last-child{border-right:0}
+.glimpse-evidence small,.glimpse-evidence strong,.glimpse-evidence span{display:block}
+.glimpse-evidence small{font-size:8px;text-transform:uppercase;letter-spacing:.08em;color:var(--faint)}
+.glimpse-evidence strong{font:400 21px var(--serif);margin-top:8px}
+.glimpse-evidence span{font-size:9px;color:var(--subtle);margin-top:2px}
+.glimpse-card>p{font-size:10px;color:var(--subtle);margin:13px 0 0}
+
+.landing-workflow{padding:90px 8vw 100px;max-width:1440px;margin:0 auto}
+.landing-workflow>header{display:grid;grid-template-columns:1fr 1fr;column-gap:40px;align-items:end}
+.landing-workflow h2{
+  grid-column:1;font:400 clamp(38px,4.3vw,58px)/1 var(--serif);letter-spacing:-.045em;margin:10px 0 0
+}
+.landing-workflow>header>p{grid-column:2;grid-row:1/3;font-size:13px;color:var(--muted);max-width:440px;justify-self:end}
+.landing-workflow-grid{display:grid;grid-template-columns:repeat(5,1fr);margin-top:48px;border-top:1px solid var(--border)}
+.landing-workflow-grid article{min-height:220px;padding:18px 16px 16px 0;border-right:1px solid var(--border)}
+.landing-workflow-grid article+article{padding-left:16px}
+.landing-workflow-grid article:last-child{border-right:0}
+.landing-workflow-grid article>span{font:9px var(--mono);color:var(--gold)}
+.landing-workflow-grid h3{font:400 20px/1.08 var(--serif);margin:54px 0 8px}
+.landing-workflow-grid p{font-size:10px;line-height:1.5;color:var(--subtle)}
+
+.landing-trust{
+  margin:0 5vw 5vw;padding:64px 7vw;border-radius:16px;background:#131315;border:1px solid var(--border)
+}
+.landing-trust h2{font:400 clamp(40px,5vw,68px)/.98 var(--serif);letter-spacing:-.05em;margin:9px 0 16px}
+.landing-trust p{font-size:14px;color:var(--muted);max-width:760px;line-height:1.65;margin-bottom:24px}
+
+@media(max-width:900px){
+  .landing-workflow>header{display:block}
+  .landing-workflow>header>p{margin-top:14px}
+  .landing-workflow-grid{grid-template-columns:1fr 1fr}
+  .landing-workflow-grid article{border-top:1px solid var(--border)}
+  .landing-workflow-grid article:nth-child(-n+2){border-top:0}
+  .landing-workflow-grid article:nth-child(2n){border-right:0}
+  .landing-workflow-grid article:nth-child(odd){padding-left:0}
+}
+@media(max-width:640px){
+  .landing-nav-actions>span{display:none}
+  .glimpse-evidence{grid-template-columns:1fr}
+  .glimpse-evidence>div{border-right:0;border-top:1px solid var(--border);padding-left:0!important}
+  .glimpse-evidence>div:first-child{border-top:0}
+  .landing-workflow{padding:64px 20px}
+  .landing-workflow-grid{grid-template-columns:1fr}
+  .landing-workflow-grid article{border-right:0;border-top:1px solid var(--border)!important;padding-left:0!important;min-height:150px}
+  .landing-workflow-grid h3{margin-top:30px}
+  .landing-trust{margin:0 12px 12px;padding:44px 20px}
+}
