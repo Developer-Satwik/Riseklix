@@ -93,6 +93,7 @@ export function AutopilotProcessingClient({
 
     if (permission === 'granted') {
       window.localStorage.setItem('riseklix.analysis.notifications', 'true')
+      window.localStorage.setItem('riseklix.analysis.notifications.enabled_at', new Date().toISOString())
       if ('serviceWorker' in navigator) {
         try {
           await navigator.serviceWorker.register('/analysis-notifications-sw.js')
