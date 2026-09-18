@@ -249,10 +249,8 @@ const handler = {
         completed_at: new Date().toISOString(),
       }).eq('id', job.id)
 
-      if (complete) {
-        await ctx.supabase.from('projects').update({ status: 'complete', updated_at: new Date().toISOString() }).eq('id', project.id)
-      }
-
+      // Observation completion is not analysis completion. The WHY layer still
+      // needs to run before Autopilot can mark the project complete.
       await continueAutopilot(req, project.id)
     })().catch(async (error) => {
       const message = error instanceof Error ? error.message : 'Unknown multi-surface observation error'
