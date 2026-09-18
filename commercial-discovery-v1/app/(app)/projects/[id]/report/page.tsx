@@ -42,6 +42,7 @@ export default async function ReportPage({ params }: { params: Promise<{ id: str
     { data: competitors },
     { data: blueprints },
     { data: sources },
+    { data: autopilotRun },
   ] = await Promise.all([
     supabase.from('projects').select('id,name,domain,market,status,analysis_mode,primary_language,updated_at').eq('id', id).single(),
     supabase.from('company_profile_versions').select('company_name,industry,business_model,summary,products,services,audiences,geographies,uncertainty').eq('project_id', id).eq('is_current', true).maybeSingle(),
@@ -54,10 +55,15 @@ export default async function ReportPage({ params }: { params: Promise<{ id: str
     supabase.from('competitor_candidates').select('id,buyer_intent_id,company_name,domain,relationship,evidence_strength,rationale,is_current,status').eq('project_id', id).eq('is_current', true).eq('status', 'verified'),
     supabase.from('blueprints').select('id,finding_id,status,version,title').eq('project_id', id),
     supabase.from('research_sources').select('id,url,title,source_type,captured_at').eq('project_id', id).order('captured_at', { ascending: false }).limit(30),
+    supabase.from('autopilot_runs').select('status,stage,progress,completed_at').eq('project_id', id).maybeSingle(),
   ])
 
   if (!project) redirect('/projects')
-  if (project.analysis_mode === 'autopilot' && project.status !== 'complete') {
+  if (
+    project.analysis_mode === 'autopilot'
+    && autopilotRun?.status !== 'complete'
+    && autopilotRun?.stage !== 'evaluation_complete'
+  ) {
     redirect('/projects/' + id + '/processing')
   }
 
