@@ -68,6 +68,7 @@ function normalizeUrl(value: string) {
     const url = new URL(value)
     if (!['http:', 'https:'].includes(url.protocol)) return null
     url.hash = ''
+    url.search = ''
     let normalized = url.toString()
     if (normalized.endsWith('/')) normalized = normalized.slice(0, -1)
     return normalized.toLowerCase()
