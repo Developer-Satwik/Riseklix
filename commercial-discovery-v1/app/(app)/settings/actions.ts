@@ -13,7 +13,7 @@ const workspaceSchema = z.object({
 })
 
 const researchDefaultsSchema = z.object({
-  default_market: z.enum(['India', 'United States', 'United Kingdom', 'UAE', 'Singapore', 'Australia']),
+  default_market: z.enum(['Global', 'India', 'United States', 'United Kingdom', 'UAE', 'Singapore', 'Australia']),
   default_analysis_mode: z.enum(['manual', 'autopilot']),
   default_primary_language: z.enum(['English', 'Hindi', 'Hinglish']),
 })
