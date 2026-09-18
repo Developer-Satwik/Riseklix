@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
+import { ProfileMenu } from '@/components/profile-menu'
 
 export function WorkspaceSidebar({
   email,
@@ -15,13 +16,6 @@ export function WorkspaceSidebar({
   const pathname = usePathname()
   const projectsActive = pathname === '/projects' || pathname.startsWith('/projects/')
   const newActive = pathname === '/projects/new'
-  const settingsActive = pathname === '/settings'
-  const initials = displayName
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0]?.toUpperCase())
-    .join('') || 'R'
 
   return (
     <aside className="workspace-sidebar">
@@ -44,10 +38,6 @@ export function WorkspaceSidebar({
           <span className="sidebar-nav-plus" aria-hidden="true">+</span>
           New analysis
         </Link>
-        <Link href="/settings" className={settingsActive ? 'active' : ''}>
-          <span className="sidebar-nav-dot" aria-hidden="true" />
-          Settings
-        </Link>
       </nav>
 
       <div className="sidebar-principle">
@@ -56,14 +46,11 @@ export function WorkspaceSidebar({
       </div>
 
       <div className="sidebar-bottom">
-        <div className="sidebar-user">
-          <span className="sidebar-avatar" aria-hidden="true">{initials}</span>
-          <div>
-            <strong>{displayName}</strong>
-            <small title={email}>{email}</small>
-          </div>
-        </div>
-        <form action="/auth/signout" method="post"><button>Sign out</button></form>
+        <ProfileMenu
+          email={email}
+          displayName={displayName}
+          organization={organization}
+        />
       </div>
     </aside>
   )
