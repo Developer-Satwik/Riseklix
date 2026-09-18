@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { approveFinding, rejectFinding, runWhyEvaluation } from './actions'
+import { PendingButton } from '@/components/pending-button'
 
 export default async function WhyPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const { id } = await params
@@ -57,7 +58,7 @@ export default async function WhyPage({ params, searchParams }: { params: Promis
             <input type="hidden" name="project_id" value={id} />
             <input type="hidden" name="benchmark_id" value={evaluableBenchmark.id} />
             <input type="hidden" name="regenerate" value="false" />
-            <button type="submit">Generate next WHY findings</button>
+            <PendingButton pendingLabel="Evaluating evidence…">Generate next WHY findings</PendingButton>
           </form>
         )}
       </section>
@@ -105,8 +106,8 @@ export default async function WhyPage({ params, searchParams }: { params: Promis
 
               {finding.review_status === 'generated' && (
                 <div className="finding-actions">
-                  <form action={approveFinding}><input type="hidden" name="project_id" value={id} /><input type="hidden" name="finding_id" value={finding.id} /><button type="submit">Approve diagnosis</button></form>
-                  <form action={rejectFinding}><input type="hidden" name="project_id" value={id} /><input type="hidden" name="finding_id" value={finding.id} /><button type="submit" className="reject">Reject</button></form>
+                  <form action={approveFinding}><input type="hidden" name="project_id" value={id} /><input type="hidden" name="finding_id" value={finding.id} /><PendingButton pendingLabel="Approving…">Approve diagnosis</PendingButton></form>
+                  <form action={rejectFinding}><input type="hidden" name="project_id" value={id} /><input type="hidden" name="finding_id" value={finding.id} /><PendingButton pendingLabel="Rejecting…" className="reject">Reject</PendingButton></form>
                 </div>
               )}
               {finding.review_status === 'approved' && finding.decision === 'fix' && <div className="blueprint-ready">Approved + action justified · ready for Blueprint generation</div>}
