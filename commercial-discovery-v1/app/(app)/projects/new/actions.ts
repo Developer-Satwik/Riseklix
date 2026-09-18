@@ -8,6 +8,7 @@ const projectSchema = z.object({
   domain: z.string().min(3),
   market: z.string().min(2),
   industry: z.string().optional(),
+  analysis_mode: z.enum(['manual','autopilot']),
 })
 
 function normalizeDomain(input: string) {
@@ -24,6 +25,7 @@ export async function createProject(formData: FormData) {
     domain: formData.get('domain'),
     market: formData.get('market'),
     industry: formData.get('industry') || undefined,
+    analysis_mode: formData.get('analysis_mode') || 'autopilot',
   })
 
   if (!parsed.success) redirect('/projects/new?error=Check+the+company+website+and+market')
@@ -47,6 +49,27 @@ export async function createProject(formData: FormData) {
   if (error || typeof projectId !== 'string') {
     const message = error?.message ?? 'Could not create project'
     redirect('/projects/new?error=' + encodeURIComponent(message))
+  }
+
+  const { error: modeError } = await supabase
+    .from('projects')
+    .update({ analysis_mode: parsed.data.analysis_mode })
+    .eq('id', projectId)
+
+  if (modeError) {
+    redirect('/projects/' + projectId + '/company-profile?error=' + encodeURIComponent(modeError.message))
+  }
+
+  if (parsed.data.analysis_mode === 'autopilot') {
+    const research = await supabase.functions.invoke('company-research', {
+      body: { project_id: projectId, regenerate: false },
+    })
+
+    if (!research.error && !research.data?.error) {
+      await supabase.functions.invoke('company-intelligence-interpreter', {
+        body: { project_id: projectId },
+      })
+    }
   }
 
   redirect('/projects/' + projectId + '/company-profile')
