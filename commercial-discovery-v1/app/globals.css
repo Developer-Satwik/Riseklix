@@ -641,3 +641,91 @@ html[data-sidebar-collapsed="true"] .sidebar-collapse-button svg{transform:scale
 }
 .auth-form select:focus{border-color:#4a5059;box-shadow:0 0 0 2px rgba(145,173,146,.06)}
 .onboarding-field-note{display:block;margin-top:5px;font-size:7.5px;line-height:1.5;color:#69655f}
+
+
+/* Analysis deletion */
+.project-list-row{position:relative;display:grid!important;grid-template-columns:minmax(0,1fr) 36px;align-items:stretch;padding:0!important}
+.project-list-row-main{
+  min-width:0;
+  display:grid;
+  grid-template-columns:minmax(240px,1.15fr) minmax(260px,1.25fr) 92px 24px;
+  align-items:center;
+  gap:18px;
+  padding:15px 16px;
+}
+.project-list-actions{display:grid;place-items:center;border-left:1px solid #22252a}
+.project-topbar-actions{display:flex;align-items:center;gap:8px}
+.analysis-delete-trigger{
+  border:0;
+  background:transparent;
+  color:#8d746e;
+  font-size:8px;
+  font-weight:700;
+  cursor:pointer;
+}
+.analysis-delete-trigger:hover{color:#d09286}
+.analysis-delete-trigger.icon{
+  width:28px;
+  height:28px;
+  display:grid;
+  place-items:center;
+  border:1px solid transparent;
+  border-radius:6px;
+  color:#68645e;
+  letter-spacing:.08em;
+}
+.analysis-delete-trigger.icon:hover,.analysis-delete-trigger.icon:focus-visible{
+  border-color:#343138;
+  background:#171719;
+  color:#d0c9bf;
+  outline:none;
+}
+.analysis-delete-dialog{
+  width:min(520px,calc(100vw - 28px));
+  border:1px solid #3a3132;
+  border-radius:12px;
+  padding:0;
+  background:#111214;
+  color:var(--text);
+  box-shadow:0 28px 90px rgba(0,0,0,.58);
+}
+.analysis-delete-dialog::backdrop{background:rgba(5,6,8,.72);backdrop-filter:blur(3px)}
+.analysis-delete-form{padding:24px}
+.analysis-delete-form h2{font:400 30px/1.05 var(--serif);margin:8px 0 10px;color:#ece6dd}
+.analysis-delete-form>p{margin:0;color:#8b857d;font-size:10px;line-height:1.65}
+.analysis-delete-form label{display:grid;gap:7px;margin-top:22px;font-size:8px;color:#77726b}
+.analysis-delete-form label strong{color:#bdb6ad;font-weight:700}
+.analysis-delete-form input{
+  width:100%;
+  border:1px solid #3b3538;
+  border-radius:7px;
+  background:#0b0c0e;
+  color:#e7e0d7;
+  padding:10px 11px;
+  outline:0;
+  font-size:10px;
+}
+.analysis-delete-form input:focus{border-color:#70514b;box-shadow:0 0 0 2px rgba(199,127,115,.07)}
+.analysis-delete-actions{display:flex;justify-content:flex-end;gap:7px;margin-top:20px;padding-top:16px;border-top:1px solid #27272b}
+.analysis-delete-cancel,.analysis-delete-confirm{
+  min-height:34px;
+  padding:0 11px;
+  border-radius:7px;
+  font-size:8px;
+  font-weight:750;
+  cursor:pointer;
+}
+.analysis-delete-cancel{border:1px solid #303238;background:#151619;color:#aaa49b}
+.analysis-delete-confirm{border:1px solid #65413b;background:#2a1714;color:#df9a8d}
+.analysis-delete-confirm:disabled{cursor:not-allowed;opacity:.32}
+.analysis-delete-confirm:not(:disabled):hover{background:#351b17;border-color:#845249}
+@media(max-width:900px){
+  .project-list-row-main{grid-template-columns:minmax(0,1fr) 88px 20px}
+  .project-list-stage{display:none}
+}
+@media(max-width:620px){
+  .project-list-row{grid-template-columns:minmax(0,1fr) 34px}
+  .project-list-row-main{grid-template-columns:minmax(0,1fr) 20px;gap:8px;padding:13px 12px}
+  .project-list-row-main time{display:none}
+  .analysis-delete-form{padding:20px}
+}
