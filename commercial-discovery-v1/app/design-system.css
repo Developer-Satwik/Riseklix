@@ -1362,3 +1362,27 @@ button[aria-busy="true"]>span:last-child{display:inline-flex;align-items:center}
   .post-change-cta form,.post-change-cta.active>span{margin-top:14px;display:inline-block}
   .post-change-cta button{width:100%}
 }
+
+
+/* Riseklix brand mark */
+.brand-wordmark{
+  display:inline-flex;
+  align-items:center;
+  gap:0;
+  letter-spacing:0;
+}
+.brand-wordmark img{
+  display:block;
+  width:118px;
+  height:auto;
+  object-fit:contain;
+}
+.workspace-sidebar .brand-wordmark img{width:126px}
+.landing-nav .brand-wordmark img{width:118px}
+.auth-card .auth-brand{margin-bottom:20px}
+.auth-card .auth-brand img{width:132px}
+.sidebar-product{margin-left:2px}
+
+@media(max-width:980px){
+  .workspace-sidebar .brand-wordmark img{width:96px}
+}
