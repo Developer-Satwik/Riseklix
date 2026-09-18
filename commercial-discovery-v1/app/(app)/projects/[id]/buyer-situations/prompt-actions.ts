@@ -14,6 +14,30 @@ const reviewSchema = generationSchema.pick({ project_id: true, intent_id: true }
   prompt_id: z.string().uuid(),
 })
 
+
+async function edgeFunctionErrorMessage(error: unknown) {
+  const candidate = error as { message?: string; context?: unknown } | null
+  const fallback = candidate?.message || 'Question generation failed'
+  const context = candidate?.context
+
+  if (context instanceof Response) {
+    try {
+      const payload = await context.clone().json() as { error?: string; message?: string }
+      if (payload?.error === 'reasoning_provider_not_configured') return 'OPENAI_API_KEY is not configured for question generation.'
+      return payload?.message || payload?.error || fallback
+    } catch {
+      try {
+        const body = await context.clone().text()
+        return body || fallback
+      } catch {
+        return fallback
+      }
+    }
+  }
+
+  return fallback
+}
+
 async function auth() {
   const supabase = await createClient()
   const { data, error } = await supabase.auth.getClaims()
@@ -39,12 +63,19 @@ export async function generatePromptExpressions(formData: FormData) {
     },
   })
 
-  if (error) redirect(`/projects/${parsed.data.project_id}/buyer-situations?error=${encodeURIComponent(error.message)}`)
+  if (error) {
+    const detail = await edgeFunctionErrorMessage(error)
+    redirect(`/projects/${parsed.data.project_id}/buyer-situations?error=${encodeURIComponent(detail)}`)
+  }
   if (data?.error) {
     const message = data.error === 'reasoning_provider_not_configured'
       ? 'Prompt Expression Generator is deployed, but its reasoning-provider secret is not configured yet.'
       : String(data.message || data.error)
     redirect(`/projects/${parsed.data.project_id}/buyer-situations?error=${encodeURIComponent(message)}`)
+  }
+
+  if (data?.pending) {
+    redirect(`/projects/${parsed.data.project_id}/buyer-situations?message=${encodeURIComponent(String(data.message || 'Buyer-question generation is running.'))}`)
   }
 
   const generated = typeof data?.generated === 'number' ? data.generated : Array.isArray(data?.expressions) ? data.expressions.length : 0
