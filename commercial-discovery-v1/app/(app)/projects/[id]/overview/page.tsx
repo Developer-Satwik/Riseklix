@@ -1,9 +1,28 @@
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import { AutopilotResumer } from '@/components/autopilot-resumer'
+import { ResearchJobWatcher } from '@/components/research-job-watcher'
 
 function decisionLabel(value: string) {
   return value === 'fix' ? 'Fix' : value === 'investigate' ? 'Investigate' : value === 'monitor' ? 'Monitor' : value === 'healthy' || value === 'no_change' ? 'Healthy' : 'Review'
+}
+
+function autopilotStageLabel(stage?: string | null) {
+  const labels: Record<string, string> = {
+    waiting_for_company_confirmation: 'Waiting for company confirmation',
+    generating_buyer_situations: 'Modeling Buyer Situations',
+    researching_competitors: 'Researching competitors',
+    generating_buyer_questions: 'Generating buyer questions',
+    baseline_ready: 'Preparing the benchmark',
+    running_multi_model_tests: 'Testing across AI models',
+    generating_why_analysis: 'Diagnosing the results',
+    evaluation_complete: 'Evaluation complete',
+    guardrail_step_limit: 'Paused by workflow safety limit',
+    guardrail_api_limit: 'Paused by API safety limit',
+    multi_model_testing_failed: 'Paused after model-test failures',
+  }
+  if (!stage) return 'Preparing analysis'
+  return labels[stage] || stage.replaceAll('_', ' ')
 }
 
 export default async function ProjectOverview({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<Record<string, string | string[] | undefined>> }) {
@@ -19,14 +38,16 @@ export default async function ProjectOverview({ params, searchParams }: { params
     { data: blueprints },
     { data: benchmark },
     { data: promptExpressions },
+    { data: autopilotRun },
   ] = await Promise.all([
-    supabase.from('projects').select('name,domain,market,status,analysis_mode').eq('id', id).single(),
+    supabase.from('projects').select('id,workspace_id,name,domain,market,status,analysis_mode').eq('id', id).single(),
     supabase.from('company_profile_versions').select('status,company_name').eq('project_id', id).eq('is_current', true).maybeSingle(),
     supabase.from('buyer_intents').select('id,status,priority').eq('project_id', id),
     supabase.from('findings').select('id,observed,severity,decision,evidence_strength,review_status,created_at').eq('project_id', id).order('created_at', { ascending: false }).limit(5),
     supabase.from('blueprints').select('id,status,finding_id').eq('project_id', id),
     supabase.from('benchmarks').select('id,status,benchmark_type,completed_at,created_at').eq('project_id', id).order('created_at', { ascending: false }).limit(1).maybeSingle(),
     supabase.from('prompt_expressions').select('buyer_intent_id,mode,status').eq('project_id', id),
+    supabase.from('autopilot_runs').select('id,status,stage,progress,step_count,max_steps,api_call_count,max_api_calls,last_error,metadata,updated_at').eq('project_id', id).maybeSingle(),
   ])
 
   const { data: surfaces } = benchmark
@@ -120,17 +141,44 @@ export default async function ProjectOverview({ params, searchParams }: { params
   return (
     <div className="project-page overview-page">
       <AutopilotResumer projectId={id} active={project?.analysis_mode === 'autopilot' && profile?.status === 'approved' && project.status !== 'complete'} />
+      <ResearchJobWatcher active={project?.analysis_mode === 'autopilot' && autopilotRun?.status === 'running'} />
       {pageError && <div className="form-alert error" role="alert">{pageError}</div>}
       {pageMessage && <div className="form-alert success" role="status" aria-live="polite">{pageMessage}</div>}
       {project?.analysis_mode === 'autopilot' && (
+        <>
         <section className="autopilot-banner">
           <div>
             <div className="eyebrow">AI AUTOPILOT</div>
             <strong>{project.status === 'complete' ? 'Evaluation complete.' : 'Riseklix is handling the evaluation automatically.'}</strong>
             <p>{project.status === 'complete' ? 'The company profile was the only required confirmation. Review the findings and evidence whenever you want.' : 'After the Company Intelligence confirmation, Buyer Situations, competitors, buyer questions, model testing and WHY analysis advance without additional approval gates.'}</p>
           </div>
-          <span>{project.status}</span>
+          <span>{autopilotRun?.status || project.status}</span>
         </section>
+
+        <section className={`autopilot-progress-card ${autopilotRun?.status || 'starting'}`}>
+          <div className="autopilot-progress-head">
+            <div>
+              <div className="eyebrow">AUTOPILOT PROGRESS</div>
+              <h2>{autopilotStageLabel(autopilotRun?.stage)}</h2>
+              <p>{autopilotRun?.status === 'paused'
+                ? (autopilotRun.last_error || 'Autopilot paused before making another paid request.')
+                : autopilotRun?.status === 'complete'
+                  ? 'The automated evaluation is complete.'
+                  : 'Riseklix is advancing the evaluation automatically. You do not need to keep this page open.'}</p>
+            </div>
+            <strong>{autopilotRun?.progress ?? 10}%</strong>
+          </div>
+          <div className="autopilot-progress-track" aria-label={(autopilotRun?.progress ?? 10) + '% complete'}>
+            <i style={{ width: (autopilotRun?.progress ?? 10) + '%' }} />
+          </div>
+          <div className="autopilot-progress-meta">
+            <span>Retries stop after 2 failures per stage</span>
+            <span>Max 4 Buyer Situations</span>
+            <span>Max 120 observation runs</span>
+            <span>{autopilotRun ? `${autopilotRun.api_call_count}/${autopilotRun.max_api_calls} orchestrated calls` : 'Spend guardrails active'}</span>
+          </div>
+        </section>
+        </>
       )}
       <section className="overview-hero">
         <div className="eyebrow">CURRENT READ</div>
