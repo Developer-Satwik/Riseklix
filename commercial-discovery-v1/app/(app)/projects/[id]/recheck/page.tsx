@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { createBaselinePanel, runOpenAIObservationBatch } from './actions'
+import { PendingButton } from '@/components/pending-button'
 
 function record(value: unknown) {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
@@ -54,7 +55,7 @@ export default async function RecheckPage({ params, searchParams }: { params: Pr
           </div>
           <form action={createBaselinePanel}>
             <input type="hidden" name="project_id" value={id} />
-            <button type="submit" disabled={!eligibleIntentCount}>Create frozen baseline</button>
+            <PendingButton pendingLabel="Freezing baseline…" disabled={!eligibleIntentCount}>Create frozen baseline</PendingButton>
           </form>
         </section>
       )}
@@ -114,7 +115,7 @@ export default async function RecheckPage({ params, searchParams }: { params: Pr
                             <form action={runOpenAIObservationBatch}>
                               <input type="hidden" name="project_id" value={id} />
                               <input type="hidden" name="benchmark_id" value={benchmark.id} />
-                              <button type="submit">{surfaceConfig.captured_runs ? 'Run next 4 observations' : 'Start OpenAI baseline'}</button>
+                              <PendingButton pendingLabel="Collecting observations…">{surfaceConfig.captured_runs ? 'Run next 4 observations' : 'Start OpenAI baseline'}</PendingButton>
                             </form>
                           )}
                         </div>
