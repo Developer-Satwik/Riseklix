@@ -48,7 +48,6 @@ export default async function ProjectsPage() {
               return (
                 <Link key={project.id} href={'/projects/' + project.id + '/overview'} className="project-list-row">
                   <div className="project-list-company">
-                    <span className="project-list-mark" aria-hidden="true">{project.name.slice(0, 1).toUpperCase()}</span>
                     <div><strong>{project.name}</strong><small>{project.domain} · {project.market}</small></div>
                   </div>
                   <div className="project-list-stage"><strong>{stage}</strong><small>{description}</small></div>
