@@ -269,6 +269,22 @@ const handler = {
     }
 
     const batch = planned.slice(0, maxRuns)
+    const observationUnits = Math.max(1, batch.length * 2)
+    const budget = await ctx.supabase.rpc('consume_ai_budget', {
+      p_project_id: project.id,
+      p_kind: 'observation',
+      p_units: observationUnits,
+    })
+    if (budget.error) return json({ error: 'ai_budget_check_failed', message: budget.error.message }, 500)
+    const budgetState = record(budget.data)
+    if (budgetState.allowed !== true) {
+      return json({
+        error: 'daily_observation_budget_exceeded',
+        message: 'This workspace reached its daily observation safety limit. Riseklix stopped before making more provider or extraction calls.',
+        usage: budgetState,
+      }, 429)
+    }
+
     const userId = String(ctx.userClaims?.id ?? ctx.jwtClaims?.sub ?? '') || null
     const { data: job, error: jobError } = await ctx.supabase.from('research_jobs').insert({
       workspace_id: project.workspace_id,
