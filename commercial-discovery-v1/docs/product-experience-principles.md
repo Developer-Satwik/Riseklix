@@ -165,3 +165,38 @@ Motion is quiet and functional:
 ## The one permanent product rule
 
 **Never make the customer do analysis Riseklix can do for them.**
+
+
+## Additional design-system research integrated in this pass
+
+### Semantic color roles before brand accents
+
+Atlassian's current color foundation separates neutral, brand, information, success, warning and danger roles, and recommends selecting color by semantic role rather than arbitrary hue. Riseklix follows the same logic: the neutral family carries most of the interface; semantic color appears only when it changes interpretation.
+
+Source: https://atlassian.design/foundations/color
+
+### Status must not depend on hue alone
+
+Carbon's status pattern explicitly combines color with text, shape and/or symbol because red/green distinction alone is inaccessible. Riseklix therefore keeps labels such as Fix, Monitor, Healthy, Verified and Capture error visible alongside color.
+
+Source: https://v10.carbondesignsystem.com/patterns/status-indicator-pattern/
+
+### Progressive disclosure in forms
+
+Shopify's app design guidance recommends progressive disclosure for complex forms so merchants do not face all fields at once. This reinforces the Company Intelligence and Buyer Situation pattern: summary first, editing and research mechanics on demand.
+
+Source: https://shopify.dev/docs/apps/design/user-experience/forms
+
+### Loading must be perceivable, not merely animated
+
+Carbon's accessibility guidance for loading and progress components recommends programmatic status such as aria-busy / aria-live, and explicitly conveying completion. Riseklix server actions now disable pending buttons, expose aria-busy, show textual pending labels and announce redirected success/error states.
+
+Sources:
+- https://carbondesignsystem.com/components/loading/accessibility/
+- https://carbondesignsystem.com/components/progress-bar/accessibility/
+
+### Tokens are a product-quality tool
+
+Atlassian treats design tokens as a single source of truth for colors, spacing and other repeated design decisions. Riseklix's V1 CSS now uses semantic variables rather than page-specific color improvisation, which makes future light/high-contrast themes possible without changing information semantics.
+
+Source: https://atlassian.design/foundations/design-tokens
