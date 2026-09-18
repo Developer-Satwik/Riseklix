@@ -64,7 +64,7 @@ export default async function ProcessingPage({ params }: { params: Promise<{ id:
   if (project.analysis_mode !== 'autopilot') redirect('/projects/' + id + '/overview')
   if (profile?.status !== 'approved') redirect('/projects/' + id + '/company-profile')
 
-  const complete = project.status === 'complete' || run?.status === 'complete' || run?.progress === 100
+  const complete = run?.status === 'complete' || run?.stage === 'evaluation_complete' || run?.progress === 100
   if (complete) redirect('/projects/' + id + '/report')
 
   const paused = run?.status === 'paused' || run?.status === 'failed'
