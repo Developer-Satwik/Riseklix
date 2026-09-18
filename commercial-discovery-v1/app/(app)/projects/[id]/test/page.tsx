@@ -175,6 +175,9 @@ export default async function TestPage({ params, searchParams }: { params: Promi
                         <div className="eyebrow">{label.toUpperCase()} · {surfaceConfig.status}</div>
                         <h3>{typeof meta.display_name === 'string' ? meta.display_name : `${surfaceConfig.provider} · ${surfaceConfig.surface}`}</h3>
                         <p>{typeof meta.methodology_note === 'string' ? meta.methodology_note : 'Results remain isolated by provider and surface.'}</p>
+                        {surfaceConfig.status === 'failed' && typeof meta.last_error === 'string' && (
+                          <div className="inline-job-error" role="alert">{meta.last_error}</div>
+                        )}
                       </div>
                     </div>
 
