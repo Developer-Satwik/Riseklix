@@ -1,3 +1,4 @@
+import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import { addIntentCandidate, approveIntent, rejectIntent } from './actions'
 import { generateBuyerIntents } from './generate-actions'
@@ -56,6 +57,16 @@ export default async function BuyerSituationsPage({ params, searchParams }: { pa
     ? String((latestJob.error as Record<string, unknown>).message)
     : null
 
+  const approvedQuestionModes = new Map<string, Set<string>>()
+  for (const prompt of prompts ?? []) {
+    if (prompt.status !== 'approved') continue
+    const modes = approvedQuestionModes.get(prompt.buyer_intent_id) ?? new Set<string>()
+    modes.add(prompt.mode)
+    approvedQuestionModes.set(prompt.buyer_intent_id, modes)
+  }
+  const testReadyIntentCount = Array.from(approvedQuestionModes.values()).filter((modes) => modes.has('unaided') && modes.has('aided')).length
+  const approvedQuestionCount = (prompts ?? []).filter((prompt) => prompt.status === 'approved').length
+
   return (
     <div className="project-page">
       <ResearchJobWatcher active={latestJob?.status === 'running' || (competitorJobs ?? []).some((job) => job.status === 'running') || (promptJobs ?? []).some((job) => job.status === 'running')} />
@@ -85,6 +96,17 @@ export default async function BuyerSituationsPage({ params, searchParams }: { pa
           </form>
         ) : <span>LOCKED</span>}
       </section>
+
+      {testReadyIntentCount > 0 && (
+        <section className="questions-ready-cta">
+          <div>
+            <div className="eyebrow">APPROVED QUESTIONS READY</div>
+            <h2>{approvedQuestionCount} approved question{approvedQuestionCount === 1 ? '' : 's'} can now be tested.</h2>
+            <p>{testReadyIntentCount} Buyer Situation{testReadyIntentCount === 1 ? '' : 's'} contain both a buyer question and brand check. Your approved questions stay here for review; running them happens in the Test stage.</p>
+          </div>
+          <Link href={`/projects/${id}/test`} className="spotlight-cta">Run approved questions <span aria-hidden="true">→</span></Link>
+        </section>
+      )}
 
       {!!intents?.length && (
         <section className="intent-summary-strip" aria-label="Buyer Situation review status">
