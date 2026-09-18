@@ -1,5 +1,5 @@
 import { withSupabase } from 'npm:@supabase/server'
-import OpenAI from 'npm:openai'
+import { firecrawlScrape } from '../_shared/firecrawl.ts'
 
 type ResearchRequest = { project_id?: string; regenerate?: boolean }
 type CapturedPage = { url: string; title: string | null; description: string | null; snapshot_hash: string; source_role: string }
@@ -266,57 +266,82 @@ function sourceRole(url: URL) {
   return 'supporting_page'
 }
 
-async function indexedFirstPartyFallback(domain: string, siteHost: string, directStatus: number) {
-  const apiKey = Deno.env.get('OPENAI_API_KEY')
-  if (!apiKey) throw new Error('The website blocks direct automated research (HTTP ' + directStatus + ') and the indexed-web fallback requires OPENAI_API_KEY.')
+async function firecrawlFirstPartyFallback(domain: string, website: URL, siteHost: string, directStatus: number) {
+  const apiKey = Deno.env.get('FIRECRAWL_API_KEY')
+  if (!apiKey) {
+    throw new Error(
+      'The website blocks direct automated research (HTTP ' + directStatus + ') and FIRECRAWL_API_KEY is not configured.'
+    )
+  }
 
-  const model = Deno.env.get('RISEKLIX_CRAWL_FALLBACK_MODEL') || 'gpt-5.6-luna'
-  const openai = new OpenAI({ apiKey })
-  const response = await openai.responses.create({
-    model,
-    reasoning: { effort: 'none' },
-    tools: [{ type: 'web_search_preview', search_context_size: 'medium' }],
-    tool_choice: 'required',
-    include: ['web_search_call.action.sources'],
-    instructions: `You are the fallback company-evidence collector for Riseklix.
+  const homepage = await firecrawlScrape(apiKey, website.toString())
+  const homepageUrl = new URL(homepage.url || website.toString())
+  assertSameSite(homepageUrl, siteHost)
 
-The target company's website refused direct automated fetching. Use web search only to recover evidence from FIRST-PARTY URLs on the exact target domain.
-
-Rules:
-1. Include only URLs whose hostname is the target domain or its www variant.
-2. Prefer the homepage plus commercial capability, about/company, services/products, location/contact, case-study/proof, audience/use-case and pricing/business-model pages.
-3. Do not include third-party profiles, social media, directories or news sites.
-4. text_sample must be a concise evidence summary grounded only in the surfaced first-party page/snippet. Do not invent facts.
-5. If a fact cannot be verified through indexed evidence, omit it and add a limitation.
-6. This is an indexed-web fallback, not a direct crawl. Do not imply the page was fetched directly.
-7. Return a small high-signal set; duplicate URLs are not useful.`,
-    input: 'Target domain: ' + domain + '\nResearch only first-party URLs on this domain.',
-    text: {
-      format: {
-        type: 'json_schema',
-        name: 'riseklix_indexed_first_party_fallback',
-        strict: true,
-        schema: INDEX_FALLBACK_SCHEMA,
-      },
-    },
-  })
-
-  const raw = outputText(response)
-  if (!raw) throw new Error('Indexed-web fallback returned no structured evidence')
-  const parsed = JSON.parse(raw) as { pages: Array<{ url: string; title: string; description: string; text_sample: string; source_role: string }>; limitations: string[] }
-
-  const pages = parsed.pages.filter((page) => {
+  const discovered: URL[] = []
+  for (const value of homepage.links) {
     try {
-      const url = new URL(page.url)
-      return ['http:','https:'].includes(url.protocol) && normalizedHost(url.hostname) === siteHost
+      const candidate = new URL(value, homepageUrl)
+      if (!['http:', 'https:'].includes(candidate.protocol)) continue
+      if (normalizedHost(candidate.hostname) !== siteHost || isUnsafeHost(candidate.hostname)) continue
+      candidate.hash = ''
+      candidate.search = ''
+      discovered.push(candidate)
     } catch {
-      return false
+      // Ignore malformed Firecrawl links.
     }
-  })
+  }
 
-  if (!pages.length) throw new Error('The website blocks direct automated research (HTTP ' + directStatus + '), and the indexed-web fallback found no usable first-party pages.')
+  const selected = selectPages(homepageUrl, discovered)
+  const pages: Array<{
+    url: string
+    title: string
+    description: string
+    text_sample: string
+    source_role: string
+  }> = []
 
-  return { pages, limitations: parsed.limitations, model }
+  for (const target of selected) {
+    try {
+      const document = target.toString() === homepageUrl.toString()
+        ? homepage
+        : await firecrawlScrape(apiKey, target.toString())
+
+      const resolved = new URL(document.url || target.toString())
+      assertSameSite(resolved, siteHost)
+      const sample = document.markdown.trim().slice(0, 30_000)
+      if (sample.length < 40) continue
+
+      pages.push({
+        url: resolved.toString(),
+        title: document.title || projectTitleFromUrl(resolved),
+        description: document.description || '',
+        text_sample: sample,
+        source_role: sourceRole(resolved),
+      })
+    } catch {
+      // One broken page should not discard the usable Firecrawl evidence set.
+    }
+  }
+
+  if (!pages.length) {
+    throw new Error(
+      'The website blocks direct automated research (HTTP ' + directStatus + '), and Firecrawl found no usable first-party pages.'
+    )
+  }
+
+  return {
+    pages,
+    limitations: [
+      'Direct automated access returned HTTP ' + directStatus + '; Firecrawl rendered and cleaned the first-party pages instead.',
+      'Firecrawl is used only as the retrieval layer. Company interpretation still happens separately in Riseklix.',
+    ],
+  }
+}
+
+function projectTitleFromUrl(url: URL) {
+  const path = url.pathname.split('/').filter(Boolean).pop()
+  return path ? path.replace(/[-_]+/g, ' ') : normalizedHost(url.hostname)
 }
 
 const handler = {
@@ -398,7 +423,7 @@ const handler = {
           let fallbackFailure: string | null = null
 
           try {
-            fallback = await indexedFirstPartyFallback(project.domain, siteHost, error.status)
+            fallback = await firecrawlFirstPartyFallback(project.domain, website, siteHost, error.status)
           } catch (fallbackError) {
             fallbackFailure = fallbackError instanceof Error ? fallbackError.message : 'Indexed first-party fallback failed'
           }
@@ -422,10 +447,9 @@ const handler = {
                 description: page.description || null,
                 text_sample: sample,
                 source_role: page.source_role,
-                acquisition_method: 'indexed_first_party_fallback',
+                acquisition_method: 'firecrawl_first_party_fallback',
                 direct_fetch_status: error.status,
-                fallback_model: fallback?.model ?? null,
-                evidence_limitations: fallback?.limitations ?? [],
+                                evidence_limitations: fallback?.limitations ?? [],
               },
             }, { onConflict: 'project_id,url' })
 
@@ -460,12 +484,11 @@ const handler = {
                 pages_failed: 0,
                 captured,
                 failures: [],
-                acquisition_method: captured.length ? 'indexed_first_party_fallback' : 'outside_in_required',
+                acquisition_method: captured.length ? 'firecrawl_first_party_fallback' : 'outside_in_required',
                 direct_fetch_status: error.status,
                 direct_access_issue: true,
                 limitations,
-                fallback_model: fallback?.model ?? null,
-              },
+                              },
               completed_at: new Date().toISOString(),
             }).eq('id', job.id),
           ])
@@ -479,8 +502,8 @@ const handler = {
             direct_access_issue: true,
             limitations,
             next: captured.length
-              ? 'Direct crawl was blocked. Indexed first-party evidence was recovered, and Company Intelligence will now verify the company across outside sources.'
-              : 'Direct crawl and indexed first-party recovery were blocked. Company Intelligence will continue with outside-in web research and preserve the access issue as a diagnostic.',
+              ? 'Direct fetch was blocked. Firecrawl recovered clean first-party evidence, and Company Intelligence will now verify the company across outside sources.'
+              : 'Direct fetch and Firecrawl recovery were blocked. Company Intelligence will continue with outside-in web research and preserve the access issue as a diagnostic.',
           })
         }
         throw error
