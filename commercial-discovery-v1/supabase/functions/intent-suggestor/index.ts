@@ -115,7 +115,7 @@ const handler = {
 
     const { data: sources } = await ctx.supabase.from('research_sources').select('id,url,title,metadata').eq('project_id', project.id).order('captured_at', { ascending: false }).limit(12)
     const sourcePackets = (sources ?? []).map(safeSource)
-    const model = Deno.env.get('RISEKLIX_INTENT_MODEL') || 'gpt-5.6-terra'
+    const model = Deno.env.get('RISEKLIX_INTENT_MODEL') || 'gpt-5.6-sol'
     const idempotencyKey = `intent-suggestor:${profile.id}:v${profile.version}:${model}`
 
     if (!body.regenerate) {
