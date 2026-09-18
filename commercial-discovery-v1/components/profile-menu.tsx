@@ -109,37 +109,36 @@ export function ProfileMenu({
           onKeyDown={handleMenuKeyDown}
         >
           <div className="profile-menu-header">
-            <span className="sidebar-avatar large" aria-hidden="true">{initials}</span>
             <div>
               <strong>{displayName}</strong>
               <small>{email}</small>
-              <span>{organization}</span>
             </div>
+            <span>{organization}</span>
           </div>
 
           <div className="profile-menu-group">
             <Link href="/settings" role="menuitem" onClick={() => setOpen(false)}>
               <Icon name="settings" />
-              <span><strong>Account & workspace</strong><small>Name, organization and account details</small></span>
+              <span>Settings</span>
             </Link>
             <Link href="/help" role="menuitem" onClick={() => setOpen(false)}>
               <Icon name="help" />
-              <span><strong>Help & support</strong><small>Product guidance and troubleshooting</small></span>
+              <span>Help & support</span>
             </Link>
             <a href="mailto:contact@riseklix.com?subject=Riseklix%20Commercial%20Discovery%20Support" role="menuitem" onClick={() => setOpen(false)}>
               <Icon name="mail" />
-              <span><strong>Contact support</strong><small>contact@riseklix.com</small></span>
+              <span>Contact support</span>
             </a>
           </div>
 
           <div className="profile-menu-group compact">
-            <Link href="/privacy" role="menuitem" onClick={() => setOpen(false)}><Icon name="privacy" /><span><strong>Privacy</strong></span></Link>
-            <Link href="/terms" role="menuitem" onClick={() => setOpen(false)}><Icon name="terms" /><span><strong>Terms</strong></span></Link>
+            <Link href="/privacy" role="menuitem" onClick={() => setOpen(false)}><Icon name="privacy" /><span>Privacy</span></Link>
+            <Link href="/terms" role="menuitem" onClick={() => setOpen(false)}><Icon name="terms" /><span>Terms</span></Link>
           </div>
 
           <div className="profile-menu-group compact danger">
             <form action="/auth/signout" method="post">
-              <button type="submit" role="menuitem"><Icon name="logout" /><span><strong>Sign out</strong></span></button>
+              <button type="submit" role="menuitem"><Icon name="logout" /><span>Sign out</span></button>
             </form>
           </div>
         </div>
