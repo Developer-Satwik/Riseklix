@@ -45,8 +45,30 @@ export async function runCompanyResearch(formData: FormData) {
   if (error) redirect(`/projects/${parsed.data.project_id}/company-profile?error=${encodeURIComponent(error.message)}`)
   if (data?.error) redirect(`/projects/${parsed.data.project_id}/company-profile?error=${encodeURIComponent(String(data.error))}`)
 
-  const reused = data?.reused ? 'Existing research capture reused' : 'First-party evidence captured'
-  redirect(`/projects/${parsed.data.project_id}/company-profile?message=${encodeURIComponent(reused)}`)
+  const captureMessage = data?.reused ? 'Existing first-party evidence reused.' : 'First-party evidence captured.'
+
+  const interpretation = await supabase.functions.invoke('company-intelligence-interpreter', {
+    body: { project_id: parsed.data.project_id },
+  })
+
+  if (interpretation.error) {
+    redirect('/projects/' + parsed.data.project_id + '/company-profile?message=' + encodeURIComponent(captureMessage + ' Company Intelligence interpretation could not start: ' + interpretation.error.message))
+  }
+
+  if (interpretation.data?.error) {
+    const interpretationMessage = interpretation.data.error === 'reasoning_provider_not_configured'
+      ? captureMessage + ' The Company Intelligence interpreter is deployed and will populate the profile once the reasoning-provider secret is configured.'
+      : captureMessage + ' Profile interpretation needs attention: ' + String(interpretation.data.message || interpretation.data.error)
+    redirect('/projects/' + parsed.data.project_id + '/company-profile?message=' + encodeURIComponent(interpretationMessage))
+  }
+
+  const company = interpretation.data?.profile?.company_name
+  const uncertainty = Number(interpretation.data?.profile?.uncertainty_count ?? 0)
+  const message = company
+    ? 'Company Intelligence generated for ' + company + '. Review the profile before approval' + (uncertainty ? ' · ' + uncertainty + ' uncertainty item' + (uncertainty === 1 ? '' : 's') + ' preserved.' : '.')
+    : captureMessage + ' Company Intelligence is ready for review.'
+
+  redirect('/projects/' + parsed.data.project_id + '/company-profile?message=' + encodeURIComponent(message))
 }
 
 export async function saveCompanyProfile(formData: FormData) {
