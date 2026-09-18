@@ -1,5 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
-import { approveBlueprint, chooseExecutionRoute, generateBlueprint } from './actions'
+import { approveBlueprint, chooseExecutionRoute, generateBlueprint, updateImplementationTask } from './actions'
 
 function record(value: unknown) {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
@@ -149,6 +149,34 @@ export default async function FixesPage({ params, searchParams }: { params: Prom
                       </form>
                     ))}
                   </div>
+
+                  {task && (
+                    <form action={updateImplementationTask} className="delivery-workflow">
+                      <input type="hidden" name="project_id" value={id} />
+                      <input type="hidden" name="blueprint_id" value={blueprint.id} />
+                      <input type="hidden" name="task_id" value={task.id} />
+
+                      <div className="delivery-workflow-head">
+                        <div>
+                          <div className="eyebrow">DELIVERY · SEPARATE FROM IMPACT</div>
+                          <h3>Where is this work right now?</h3>
+                          <p>Marking delivery verified confirms the Blueprint was implemented. It does not claim the AI outcome changed; that belongs in Recheck.</p>
+                        </div>
+                        <span>{task.status.replaceAll('_', ' ')}</span>
+                      </div>
+
+                      <div className="delivery-inputs">
+                        <label>Live URL <small>optional until review</small><input name="delivery_url" type="url" placeholder="https://company.com/implemented-page" /></label>
+                        <label>Delivery note <small>optional</small><textarea name="notes" placeholder="What changed, what remains unresolved, or what the reviewer should check." /></label>
+                      </div>
+
+                      <div className="delivery-status-actions">
+                        <button name="status" value="in_progress" type="submit" className={task.status === 'in_progress' ? 'active' : ''}>In progress</button>
+                        <button name="status" value="ready_for_review" type="submit" className={task.status === 'ready_for_review' ? 'active' : ''}>Ready for review</button>
+                        <button name="status" value="verified" type="submit" className={task.status === 'verified' ? 'active verified' : 'verified'}>Verify delivery</button>
+                      </div>
+                    </form>
+                  )}
                 </section>
               )}
             </article>
