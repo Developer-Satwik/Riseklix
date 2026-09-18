@@ -60,7 +60,7 @@ export async function signup(formData: FormData) {
   requireCaptcha(parsed.data.captcha_token)
 
   const supabase = await createClient()
-  const emailRedirectTo = await getSiteUrl('/auth/callback?next=/onboarding')
+  const emailRedirectTo = await getSiteUrl('/auth/callback')
   const { data, error } = await supabase.auth.signUp({
     email: parsed.data.email,
     password: parsed.data.password,
@@ -79,7 +79,7 @@ export async function signup(formData: FormData) {
 
 async function beginOAuth(provider: 'google' | 'azure') {
   const supabase = await createClient()
-  const redirectTo = await getSiteUrl('/auth/callback?next=/onboarding')
+  const redirectTo = await getSiteUrl('/auth/callback')
   const { data, error } = await supabase.auth.signInWithOAuth({
     provider,
     options: {
