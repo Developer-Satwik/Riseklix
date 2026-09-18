@@ -394,10 +394,18 @@ const handler = {
             stage: 'using_indexed_first_party_fallback',
           }).eq('id', job.id)
 
-          const fallback = await indexedFirstPartyFallback(project.domain, siteHost, error.status)
+          let fallback: Awaited<ReturnType<typeof indexedFirstPartyFallback>> | null = null
+          let fallbackFailure: string | null = null
+
+          try {
+            fallback = await indexedFirstPartyFallback(project.domain, siteHost, error.status)
+          } catch (fallbackError) {
+            fallbackFailure = fallbackError instanceof Error ? fallbackError.message : 'Indexed first-party fallback failed'
+          }
+
           const captured: CapturedPage[] = []
 
-          for (const page of fallback.pages) {
+          for (const page of fallback?.pages ?? []) {
             const sample = page.text_sample.trim().slice(0, 30_000)
             if (sample.length < 40) continue
             const hash = await sha256(sample)
@@ -416,8 +424,8 @@ const handler = {
                 source_role: page.source_role,
                 acquisition_method: 'indexed_first_party_fallback',
                 direct_fetch_status: error.status,
-                fallback_model: fallback.model,
-                evidence_limitations: fallback.limitations,
+                fallback_model: fallback?.model ?? null,
+                evidence_limitations: fallback?.limitations ?? [],
               },
             }, { onConflict: 'project_id,url' })
 
@@ -431,38 +439,48 @@ const handler = {
             })
           }
 
-          if (!captured.length) {
-            throw new Error('The website blocks direct automated research (HTTP ' + error.status + ') and no usable indexed first-party evidence could be recovered.')
-          }
+          const stage = captured.length
+            ? 'direct_access_blocked_indexed_first_party_recovered'
+            : 'direct_access_blocked_outside_in_required'
+
+          const limitations = [
+            ...(fallback?.limitations ?? []),
+            ...(fallbackFailure ? [fallbackFailure] : []),
+            'Direct automated access to the company website returned HTTP ' + error.status + '. This does not by itself prove that search-engine or AI crawlers are blocked.',
+          ]
 
           await Promise.all([
             ctx.supabase.from('projects').update({ status: 'profile_review' }).eq('id', project.id),
             ctx.supabase.from('research_jobs').update({
               status: 'succeeded',
               progress: 100,
-              stage: 'indexed_first_party_fallback_complete',
+              stage,
               output: {
                 pages_captured: captured.length,
                 pages_failed: 0,
                 captured,
                 failures: [],
-                acquisition_method: 'indexed_first_party_fallback',
+                acquisition_method: captured.length ? 'indexed_first_party_fallback' : 'outside_in_required',
                 direct_fetch_status: error.status,
-                limitations: fallback.limitations,
-                fallback_model: fallback.model,
+                direct_access_issue: true,
+                limitations,
+                fallback_model: fallback?.model ?? null,
               },
               completed_at: new Date().toISOString(),
             }).eq('id', job.id),
           ])
 
           return json({
-            job: { ...job, status: 'succeeded', progress: 100, stage: 'indexed_first_party_fallback_complete' },
+            job: { ...job, status: 'succeeded', progress: 100, stage },
             pages: captured,
             failures: [],
             fallback: true,
             direct_fetch_status: error.status,
-            limitations: fallback.limitations,
-            next: 'Direct crawling was blocked, so Riseklix recovered indexed first-party evidence. Company Intelligence should preserve that acquisition limitation.',
+            direct_access_issue: true,
+            limitations,
+            next: captured.length
+              ? 'Direct crawl was blocked. Indexed first-party evidence was recovered, and Company Intelligence will now verify the company across outside sources.'
+              : 'Direct crawl and indexed first-party recovery were blocked. Company Intelligence will continue with outside-in web research and preserve the access issue as a diagnostic.',
           })
         }
         throw error
@@ -506,6 +524,7 @@ const handler = {
                 description,
                 text_sample: sample,
                 source_role: role,
+                acquisition_method: 'direct_first_party_fetch',
                 discovery_score: pageScore(page.finalUrl),
               },
             }, { onConflict: 'project_id,url' })
