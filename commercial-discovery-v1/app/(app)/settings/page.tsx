@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import { revokeOtherSessions, updateProfile, updateResearchDefaults, updateWorkspace } from './actions'
+import { SettingsForm } from '@/components/settings-form'
 
 const settingsNav = [
   ['profile', 'Profile'],
@@ -107,10 +108,8 @@ export default async function SettingsPage({
         </aside>
 
         <div className="settings-content">
-          {(error || message) && (
-            <div className={error ? 'form-alert error settings-alert' : 'form-alert success settings-alert'} role={error ? 'alert' : 'status'}>
-              {error || message}
-            </div>
+          {error && (
+            <div className="form-alert error settings-alert" role="alert">{error}</div>
           )}
 
           <section className="settings-section" id="profile">
@@ -122,7 +121,11 @@ export default async function SettingsPage({
               </div>
             </header>
 
-            <form action={updateProfile} className="settings-form">
+            <SettingsForm
+              action={updateProfile}
+              submitLabel="Save profile"
+              saved={activeSection === 'profile' && Boolean(message)}
+            >
               <div className="settings-field-row">
                 <div>
                   <label htmlFor="display_name">Your name</label>
@@ -144,8 +147,7 @@ export default async function SettingsPage({
                 </div>
               </div>
 
-              <footer><button type="submit">Save profile</button></footer>
-            </form>
+            </SettingsForm>
           </section>
 
           <section className="settings-section" id="workspace">
@@ -161,7 +163,13 @@ export default async function SettingsPage({
               </div>
             </header>
 
-            <form action={updateWorkspace} className="settings-form">
+            <SettingsForm
+              action={updateWorkspace}
+              submitLabel="Save workspace"
+              saved={activeSection === 'workspace' && Boolean(message)}
+              disabled={!canRenameWorkspace}
+              footerNote={canRenameWorkspace ? undefined : 'Only the workspace owner can rename this workspace.'}
+            >
               <div className="settings-field-row">
                 <div>
                   <label htmlFor="organization_name">Organization name</label>
@@ -186,10 +194,7 @@ export default async function SettingsPage({
                 <div className="settings-value-stack"><strong className="settings-role-text">{membership?.role ?? 'member'}</strong></div>
               </div>
 
-              {canRenameWorkspace
-                ? <footer><button type="submit">Save workspace</button></footer>
-                : <footer><span className="settings-footnote">Only the workspace owner can rename this workspace.</span></footer>}
-            </form>
+            </SettingsForm>
           </section>
 
           <section className="settings-section" id="research">
@@ -201,7 +206,11 @@ export default async function SettingsPage({
               </div>
             </header>
 
-            <form action={updateResearchDefaults} className="settings-form">
+            <SettingsForm
+              action={updateResearchDefaults}
+              submitLabel="Save research defaults"
+              saved={activeSection === 'research' && Boolean(message)}
+            >
               <div className="settings-field-row">
                 <div>
                   <label htmlFor="default_market">Default market</label>
@@ -254,8 +263,7 @@ export default async function SettingsPage({
                 <span className="settings-status-lock">Required</span>
               </div>
 
-              <footer><button type="submit">Save research defaults</button></footer>
-            </form>
+            </SettingsForm>
           </section>
 
           <section className="settings-section" id="security">
