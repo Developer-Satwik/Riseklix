@@ -26,7 +26,7 @@ const INTENT_SCHEMA = {
   properties: {
     summary: { type: 'string' },
     intents: {
-      type: 'array', minItems: 12, maxItems: 24,
+      type: 'array', minItems: 10, maxItems: 18,
       items: {
         type: 'object', additionalProperties: false,
         required: ['title','buyer','job_to_be_done','constraints','required_capabilities','geography','commercial_model','purchase_stage','provenance','provenance_reason','source_refs','priority','language_policy'],
@@ -65,8 +65,8 @@ function safeSource(source: { id: string; url: string; title: string | null; met
     url: source.url,
     title: source.title,
     source_role: typeof metadata.source_role === 'string' ? metadata.source_role : 'first_party',
-    description: typeof metadata.description === 'string' ? metadata.description.slice(0, 1000) : null,
-    text_sample: typeof metadata.text_sample === 'string' ? metadata.text_sample.slice(0, 7000) : '',
+    description: typeof metadata.description === 'string' ? metadata.description.slice(0, 500) : null,
+    text_sample: typeof metadata.text_sample === 'string' ? metadata.text_sample.slice(0, 1600) : '',
   }
 }
 
@@ -113,14 +113,47 @@ const handler = {
     if (profileError || !profile) return json({ error: 'Current Company Intelligence Profile not found' }, 404)
     if (profile.status !== 'approved') return json({ error: 'company_profile_not_approved', message: 'Approve Company Intelligence before generating Buyer Intents.' }, 409)
 
-    const { data: sources } = await ctx.supabase.from('research_sources').select('id,url,title,metadata').eq('project_id', project.id).order('captured_at', { ascending: false }).limit(12)
+    const { data: sources } = await ctx.supabase.from('research_sources').select('id,url,title,metadata').eq('project_id', project.id).order('captured_at', { ascending: false }).limit(8)
     const sourcePackets = (sources ?? []).map(safeSource)
     const model = Deno.env.get('RISEKLIX_INTENT_MODEL') || 'gpt-5.6-sol'
     const idempotencyKey = `intent-suggestor:${profile.id}:v${profile.version}:${model}`
 
     if (!body.regenerate) {
-      const existing = await ctx.supabase.from('research_jobs').select('id,status,progress,stage,output').eq('project_id', project.id).eq('idempotency_key', idempotencyKey).maybeSingle()
-      if (existing.data?.status === 'succeeded') return json({ job: existing.data, reused: true, generated: Number(record(existing.data.output).generated ?? 0) })
+      const existing = await ctx.supabase
+        .from('research_jobs')
+        .select('id,status,progress,stage,output,created_at')
+        .eq('project_id', project.id)
+        .eq('idempotency_key', idempotencyKey)
+        .maybeSingle()
+
+      if (existing.data?.status === 'succeeded') {
+        return json({ job: existing.data, reused: true, generated: Number(record(existing.data.output).generated ?? 0) })
+      }
+
+      if (existing.data?.status === 'running') {
+        const createdAt = new Date(existing.data.created_at).getTime()
+        const ageMs = Number.isFinite(createdAt) ? Date.now() - createdAt : 0
+
+        if (ageMs < 120_000) {
+          return json({
+            job: existing.data,
+            pending: true,
+            message: 'Buyer Intent generation is already running. Give the reasoning model a moment, then refresh.',
+          }, 202)
+        }
+      }
+
+      if (existing.data) {
+        await ctx.supabase.from('research_jobs').update({
+          status: existing.data.status === 'running' ? 'failed' : existing.data.status,
+          stage: existing.data.status === 'running' ? 'intent_generation_interrupted' : existing.data.stage,
+          error: existing.data.status === 'running'
+            ? { message: 'Previous synchronous generation did not finish before the request window closed.' }
+            : undefined,
+          completed_at: existing.data.status === 'running' ? new Date().toISOString() : undefined,
+          idempotency_key: idempotencyKey + ':previous:' + existing.data.id,
+        }).eq('id', existing.data.id)
+      }
     }
 
     const userId = String(ctx.userClaims?.id ?? ctx.jwtClaims?.sub ?? '') || null
@@ -150,8 +183,8 @@ const handler = {
 
       const response = await openai.responses.create({
         model,
-        reasoning: { effort: 'high' },
-        instructions: `You are the Buyer Intent Suggestor for Riseklix Commercial Discovery.\n\nModel materially different commercial buying situations, not SEO keywords or prompt paraphrases.\n\nRules:\n1. Treat the approved Company Intelligence Profile as the business premise, but preserve uncertainty and never invent capabilities.\n2. Use supplied evidence refs when a situation is adapted from approved facts. Never claim demand volume, popularity or search frequency unless evidence explicitly provides it.\n3. provenance=adapted means derived from verified/customer-approved business facts. provenance=exploratory means commercially plausible but not evidenced as observed demand. Never mark model-generated intents as observed.\n4. Diversity must come from buyer, job, constraint, transaction model, use case, geography, buying stage or capability—not wording.\n5. Classify constraints as hard, important or contextual. Hard constraints are non-negotiable downstream.\n6. Prioritize revenue-near situations: shortlist, evaluation, vendor consolidation, replacement, purchase-vs-rent, implementation, service availability, technical/safety constraints and supported high-value use cases.\n7. Do not manufacture a problem merely because the company sells something.\n8. Language variants require buyer/audience justification; never recommend local-language testing solely because a company operates in India.\n9. Do not generate named competitors yet.\n10. Aim for 16-20 high-signal intents; fewer strong intents are better than filler.`,
+        reasoning: { effort: 'medium' },
+        instructions: `You are the Buyer Intent Suggestor for Riseklix Commercial Discovery.\n\nModel materially different commercial buying situations, not SEO keywords or prompt paraphrases.\n\nRules:\n1. Treat the approved Company Intelligence Profile as the business premise, but preserve uncertainty and never invent capabilities.\n2. Use supplied evidence refs when a situation is adapted from approved facts. Never claim demand volume, popularity or search frequency unless evidence explicitly provides it.\n3. provenance=adapted means derived from verified/customer-approved business facts. provenance=exploratory means commercially plausible but not evidenced as observed demand. Never mark model-generated intents as observed.\n4. Diversity must come from buyer, job, constraint, transaction model, use case, geography, buying stage or capability—not wording.\n5. Classify constraints as hard, important or contextual. Hard constraints are non-negotiable downstream.\n6. Prioritize revenue-near situations: shortlist, evaluation, vendor consolidation, replacement, purchase-vs-rent, implementation, service availability, technical/safety constraints and supported high-value use cases.\n7. Do not manufacture a problem merely because the company sells something.\n8. Language variants require buyer/audience justification; never recommend local-language testing solely because a company operates in India.\n9. Do not generate named competitors yet.\n10. Aim for 12-16 high-signal intents in this first pass. Prefer distinct commercial decisions over completeness; users can request another pass later.`,
         input: `Build Buyer Intent candidates from this approved company context and source evidence:\n\n${JSON.stringify(companyContext)}`,
         text: { format: { type: 'json_schema', name: 'riseklix_buyer_intents', strict: true, schema: INTENT_SCHEMA } },
       })
