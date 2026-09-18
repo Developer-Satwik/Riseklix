@@ -627,3 +627,17 @@ html[data-sidebar-collapsed="true"] .sidebar-collapse-button svg{transform:scale
   .settings-form-footer{align-items:flex-start!important;flex-direction:column-reverse}
   .settings-save-button{width:100%}
 }
+
+
+/* Location-aware onboarding default */
+.auth-form select{
+  width:100%;
+  background:#0e0e0f;
+  color:var(--text);
+  border:1px solid var(--border);
+  border-radius:8px;
+  padding:11px;
+  outline:0;
+}
+.auth-form select:focus{border-color:#4a5059;box-shadow:0 0 0 2px rgba(145,173,146,.06)}
+.onboarding-field-note{display:block;margin-top:5px;font-size:7.5px;line-height:1.5;color:#69655f}
