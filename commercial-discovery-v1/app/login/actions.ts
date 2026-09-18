@@ -76,26 +76,3 @@ export async function signup(formData: FormData) {
 
   redirect('/login?message=' + encodeURIComponent('Check your email to confirm your account'))
 }
-
-async function beginOAuth(provider: 'google' | 'azure') {
-  const supabase = await createClient()
-  const redirectTo = await getSiteUrl('/auth/callback')
-  const { data, error } = await supabase.auth.signInWithOAuth({
-    provider,
-    options: {
-      redirectTo,
-      ...(provider === 'azure' ? { scopes: 'email' } : {}),
-    },
-  })
-
-  if (error || !data.url) redirect('/login?error=' + encodeURIComponent(error?.message || 'Could not start sign in'))
-  redirect(data.url)
-}
-
-export async function signInWithGoogle() {
-  await beginOAuth('google')
-}
-
-export async function signInWithMicrosoft() {
-  await beginOAuth('azure')
-}
