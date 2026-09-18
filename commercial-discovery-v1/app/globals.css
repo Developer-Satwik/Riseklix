@@ -609,3 +609,21 @@ html[data-sidebar-collapsed="true"] .sidebar-collapse-button svg{transform:scale
   .settings-danger-zone{align-items:flex-start;flex-direction:column}
   .new-project-secondary-three{grid-template-columns:1fr!important}
 }
+
+
+/* Settings save-state feedback */
+.settings-form-footer{display:flex!important;justify-content:space-between!important;align-items:center!important;gap:16px}
+.settings-save-state{min-height:18px;display:flex;align-items:center}
+.settings-saved-indicator,.settings-unsaved-indicator,.settings-clean-indicator{display:inline-flex;align-items:center;gap:6px;font-size:7px;letter-spacing:.035em}
+.settings-saved-indicator{color:#8fa589}
+.settings-saved-indicator i{width:15px;height:15px;display:grid;place-items:center;border-radius:50%;background:rgba(143,165,137,.1);border:1px solid rgba(143,165,137,.16);font-style:normal;font-size:8px}
+.settings-unsaved-indicator{color:#9a8b72}
+.settings-unsaved-indicator i{width:5px;height:5px;border-radius:50%;background:#9a8b72;box-shadow:0 0 0 3px rgba(154,139,114,.07)}
+.settings-clean-indicator{color:#5f5b55}
+.settings-save-button{transition:opacity .12s ease,background .12s ease,color .12s ease,transform .12s ease}
+.settings-save-button:not(:disabled):hover{transform:translateY(-1px)}
+.settings-save-button:disabled{cursor:not-allowed!important;opacity:.34;background:#5d5952!important;color:#191714!important}
+@media(max-width:620px){
+  .settings-form-footer{align-items:flex-start!important;flex-direction:column-reverse}
+  .settings-save-button{width:100%}
+}
