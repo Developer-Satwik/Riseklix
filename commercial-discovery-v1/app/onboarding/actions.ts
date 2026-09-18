@@ -7,12 +7,14 @@ import { createClient } from '@/lib/supabase/server'
 const onboardingSchema = z.object({
   display_name: z.string().trim().min(2).max(80),
   organization_name: z.string().trim().min(2).max(120),
+  default_market: z.enum(['Global', 'India', 'United States', 'United Kingdom', 'UAE', 'Singapore', 'Australia']),
 })
 
 export async function completeOnboarding(formData: FormData) {
   const parsed = onboardingSchema.safeParse({
     display_name: formData.get('display_name'),
     organization_name: formData.get('organization_name'),
+    default_market: formData.get('default_market'),
   })
 
   if (!parsed.success) {
@@ -29,6 +31,18 @@ export async function completeOnboarding(formData: FormData) {
   })
 
   if (error) redirect('/onboarding?error=' + encodeURIComponent(error.message))
+
+  const { error: preferencesError } = await supabase
+    .from('profiles')
+    .update({
+      default_market: parsed.data.default_market,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', claims.claims.sub)
+
+  if (preferencesError) {
+    redirect('/onboarding?error=' + encodeURIComponent(preferencesError.message))
+  }
 
   redirect('/projects/new?welcome=1')
 }
