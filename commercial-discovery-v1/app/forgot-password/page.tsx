@@ -6,6 +6,7 @@ export default async function ForgotPasswordPage({ searchParams }: { searchParam
   const params = await searchParams
   const error = typeof params.error === 'string' ? params.error : null
   const message = typeof params.message === 'string' ? params.message : null
+  const email = typeof params.email === 'string' ? params.email : ''
 
   return (
     <main className="auth-shell">
@@ -17,7 +18,7 @@ export default async function ForgotPasswordPage({ searchParams }: { searchParam
         {error && <div className="form-alert error" role="alert">{error}</div>}
         {message && <div className="form-alert success" role="status">{message}</div>}
         <form action={requestPasswordReset} className="auth-form">
-          <label>Email<input name="email" type="email" autoComplete="email" required /></label>
+          <label>Email<input name="email" type="email" autoComplete="email" defaultValue={email} required /></label>
           <TurnstileWidget />
           <button type="submit">Send recovery link</button>
         </form>
