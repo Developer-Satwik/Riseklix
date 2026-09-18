@@ -1,6 +1,8 @@
 import { withSupabase } from 'npm:@supabase/server'
 import OpenAI from 'npm:openai'
 
+declare const EdgeRuntime: { waitUntil(promise: Promise<unknown>): void }
+
 type RequestBody = { project_id?: string; regenerate?: boolean }
 
 type CompanyIntelligence = {
@@ -12,8 +14,8 @@ type CompanyIntelligence = {
   services: string[]
   audiences: string[]
   geographies: string[]
-  claims: Array<{ claim: string; source_refs: string[]; support: 'supported' | 'uncertain'; note: string }>
-  evidence: Array<{ fact: string; source_refs: string[] }>
+  claims: Array<{ claim: string; source_urls: string[]; support: 'supported' | 'uncertain'; note: string }>
+  evidence: Array<{ fact: string; source_urls: string[] }>
   uncertainty: string[]
 }
 
@@ -33,10 +35,10 @@ const COMPANY_SCHEMA = {
     claims: {
       type: 'array',
       items: {
-        type: 'object', additionalProperties: false, required: ['claim','source_refs','support','note'],
+        type: 'object', additionalProperties: false, required: ['claim','source_urls','support','note'],
         properties: {
           claim: { type: 'string' },
-          source_refs: { type: 'array', items: { type: 'string' } },
+          source_urls: { type: 'array', items: { type: 'string' } },
           support: { type: 'string', enum: ['supported','uncertain'] },
           note: { type: 'string' },
         },
@@ -45,8 +47,8 @@ const COMPANY_SCHEMA = {
     evidence: {
       type: 'array',
       items: {
-        type: 'object', additionalProperties: false, required: ['fact','source_refs'],
-        properties: { fact: { type: 'string' }, source_refs: { type: 'array', items: { type: 'string' } } },
+        type: 'object', additionalProperties: false, required: ['fact','source_urls'],
+        properties: { fact: { type: 'string' }, source_urls: { type: 'array', items: { type: 'string' } } },
       },
     },
     uncertainty: { type: 'array', items: { type: 'string' } },
@@ -59,6 +61,42 @@ function json(data: unknown, status = 200) {
 
 function record(value: unknown) {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
+}
+
+function normalizeUrl(value: string) {
+  try {
+    const url = new URL(value)
+    if (!['http:', 'https:'].includes(url.protocol)) return null
+    url.hash = ''
+    let normalized = url.toString()
+    if (normalized.endsWith('/')) normalized = normalized.slice(0, -1)
+    return normalized.toLowerCase()
+  } catch {
+    return null
+  }
+}
+
+function collectSearchSources(response: unknown) {
+  const value = record(response)
+  const output = Array.isArray(value.output) ? value.output : []
+  const sources: Array<{ url: string; title: string }> = []
+
+  for (const item of output) {
+    const block = record(item)
+    if (block.type !== 'web_search_call') continue
+    const action = record(block.action)
+    const actionSources = Array.isArray(action.sources) ? action.sources : []
+    for (const source of actionSources) {
+      const candidate = record(source)
+      if (typeof candidate.url !== 'string') continue
+      sources.push({
+        url: candidate.url,
+        title: typeof candidate.title === 'string' ? candidate.title : candidate.url,
+      })
+    }
+  }
+
+  return sources
 }
 
 function outputText(response: unknown) {
@@ -110,13 +148,10 @@ const handler = {
 
     if (projectError || profileError || sourceError || !project || !profile) return json({ error: 'Project context could not be loaded' }, 404)
     if (profile.status === 'approved') return json({ error: 'approved_profile_is_immutable', message: 'The current Company Intelligence Profile is already approved. Edit it before requesting a new interpretation.' }, 409)
-    if (!sources?.length) return json({ error: 'no_company_evidence', message: 'Capture first-party company evidence before interpretation.' }, 409)
-
-    const packets = sources.map(sourcePacket).filter((source) => source.text_sample.length > 60)
-    if (!packets.length) return json({ error: 'no_usable_company_evidence' }, 409)
+    const packets = (sources ?? []).map(sourcePacket).filter((source) => source.text_sample.length > 60)
 
     const model = Deno.env.get('RISEKLIX_COMPANY_MODEL') || 'gpt-5.6-sol'
-    const sourceSignature = packets.map((source) => source.ref).sort().join(':')
+    const sourceSignature = packets.length ? packets.map((source) => source.ref).sort().join(':') : 'outside-in-only'
     const idempotencyKey = body.regenerate
       ? 'company-interpretation:' + profile.id + ':v' + profile.version + ':' + model + ':' + crypto.randomUUID()
       : 'company-interpretation:' + profile.id + ':v' + profile.version + ':' + model + ':' + sourceSignature
@@ -135,43 +170,111 @@ const handler = {
     }).select('id').single()
     if (jobError || !job) return json({ error: jobError?.message ?? 'Could not start Company Intelligence interpretation' }, 400)
 
-    try {
-      const openai = new OpenAI({ apiKey })
-      const response = await openai.responses.create({
+    const interpretationTask = (async () => {
+      try {
+        await ctx.supabase.from('research_jobs').update({
+          progress: 28,
+          stage: 'verifying_company_outside_in',
+        }).eq('id', job.id)
+
+        const openai = new OpenAI({ apiKey })
+        const response = await openai.responses.create({
         model,
-        reasoning: { effort: 'high' },
+        reasoning: { effort: 'medium' },
+        tools: [{ type: 'web_search_preview', search_context_size: 'medium' }],
+        tool_choice: 'required',
+        include: ['web_search_call.action.sources'],
         instructions: `You are the Company Intelligence interpreter for Riseklix Commercial Discovery.
 
-Your job is to reconstruct the company's commercial reality from supplied FIRST-PARTY evidence before Buyer Intent generation.
+Your job is to reconstruct the company's commercial reality using BOTH supplied company evidence and current outside-in web research before Buyer Intent generation.
 
 Rules:
-1. Use only the supplied source packets. Do not perform outside research in this step and do not use unstated general knowledge to fill gaps. Some packets may be direct first-party captures while others may be indexed first-party fallback evidence; preserve that distinction.
-2. Separate facts supported by the evidence from uncertainty. If geography, service capacity, customer type, commercial model, certifications or operational claims are not explicit enough, place the gap in uncertainty.
-3. Do not turn marketing adjectives into verified capabilities.
-4. Products are things sold or supplied. Services describe how customers engage, such as rental, implementation, installation, consulting, support or project delivery.
-5. Audiences must be supported by explicit industry/customer/use-case evidence; do not invent personas from generic category assumptions.
-6. Geographies should reflect evidence actually present. Never infer pan-national or local coverage from a generic contact page.
-7. The summary should be concise, commercial and neutral. It should explain what the company appears to provide, to whom, and how customers buy where supported.
-8. Every claim and evidence fact must cite source_refs from the supplied packets.
-9. 'supported' means supported by the supplied evidence, not independently verified truth. Treat indexed-first-party fallback evidence as weaker than a direct page capture and preserve that limitation in uncertainty when it materially affects a claim.
-10. Preserve contradictions or missing detail in uncertainty rather than resolving them silently.`,
+1. Always use web search. Research the company by name, domain, products/services, geographies and commercial model.
+2. Treat evidence in layers: (a) direct first-party captures, (b) indexed first-party evidence, (c) independent external evidence such as reputable directories, trade/industry sources, client/customer references, registries, press or other public corroboration.
+3. Prefer first-party evidence for what the company claims. Use independent sources to corroborate, challenge or qualify those claims where possible.
+4. Never infer a capability merely because a third-party page categorizes the company broadly. A material capability should be explicit in at least one relevant source.
+5. If first-party and external evidence disagree, preserve the disagreement in uncertainty instead of silently resolving it.
+6. Do not turn marketing adjectives into verified capabilities.
+7. Products are things sold or supplied. Services describe how customers engage, such as rental, implementation, installation, consulting, support or project delivery.
+8. Audiences must be supported by explicit customer, industry, use-case or commercial evidence; do not invent personas from generic category assumptions.
+9. Geographies should reflect evidence actually present. Never infer national or local coverage from a generic contact page.
+10. Every claim and evidence fact must cite source_urls. Use exact URLs from supplied packets or web-search sources.
+11. 'supported' means supported by the evidence set, not independently proven truth. Weak or conflicting support belongs in uncertainty.
+12. The summary should be concise, commercial and neutral: what the company provides, who it appears to serve, where, and how customers buy.
+13. The research objective is not to make the company look good. It is to reconstruct what a serious buyer or AI system could verify publicly.`,
         input: 'Project context:\n' + JSON.stringify({
           domain: project.domain, market: project.market, primary_language: project.primary_language,
           enabled_languages: project.enabled_languages, current_company_name: profile.company_name,
           user_supplied_industry_hint: profile.industry,
-        }) + '\n\nFirst-party source packets:\n' + JSON.stringify(packets),
+        }) + '\n\nExisting company-evidence packets (may be empty if direct access was blocked):\n' + JSON.stringify(packets),
         text: { format: { type: 'json_schema', name: 'riseklix_company_intelligence', strict: true, schema: COMPANY_SCHEMA } },
       })
 
-      const raw = outputText(response)
-      if (!raw) throw new Error('Company Intelligence provider returned no structured output')
-      const interpreted = JSON.parse(raw) as CompanyIntelligence
-      const validRefs = new Set(packets.map((source) => source.ref))
-      const safeRefs = (refs: string[]) => refs.filter((ref) => validRefs.has(ref))
-      const claims = interpreted.claims.map((claim) => ({ ...claim, source_refs: safeRefs(claim.source_refs) }))
-      const evidence = interpreted.evidence.map((item) => ({ ...item, source_refs: safeRefs(item.source_refs) }))
+        const raw = outputText(response)
+        if (!raw) throw new Error('Company Intelligence provider returned no structured output')
+        const interpreted = JSON.parse(raw) as CompanyIntelligence
 
-      const { error: updateError } = await ctx.supabase.from('company_profile_versions').update({
+        const searchSources = collectSearchSources(response)
+        const existingByUrl = new Map<string, string>()
+        for (const source of (sources ?? [])) {
+          const key = normalizeUrl(source.url)
+          if (key) existingByUrl.set(key, source.id)
+        }
+
+        const discoveredRows = Array.from(new Map(
+          searchSources
+            .filter((source) => normalizeUrl(source.url))
+            .map((source) => [normalizeUrl(source.url) as string, {
+              workspace_id: project.workspace_id,
+              project_id: project.id,
+              url: source.url,
+              title: source.title,
+              source_type: 'search_result',
+              captured_at: new Date().toISOString(),
+              metadata: {
+                source_role: 'outside_in_verification',
+                acquisition_method: 'openai_web_search',
+                discovered_by_model: model,
+              },
+            }])
+        ).values())
+
+        let storedSearchSources: Array<{ id: string; url: string }> = []
+        if (discoveredRows.length) {
+          const { data: stored, error: storeError } = await ctx.supabase
+            .from('research_sources')
+            .upsert(discoveredRows, { onConflict: 'project_id,url' })
+            .select('id,url')
+          if (storeError) throw storeError
+          storedSearchSources = stored ?? []
+        }
+
+        const sourceIdByUrl = new Map(existingByUrl)
+        for (const source of storedSearchSources) {
+          const key = normalizeUrl(source.url)
+          if (key) sourceIdByUrl.set(key, source.id)
+        }
+
+        const mapUrls = (urls: string[]) => Array.from(new Set(
+          urls
+            .map((url) => normalizeUrl(url))
+            .filter((url): url is string => Boolean(url))
+            .map((url) => sourceIdByUrl.get(url))
+            .filter((id): id is string => typeof id === 'string')
+        ))
+
+        const claims = interpreted.claims.map((claim) => ({
+          claim: claim.claim,
+          source_refs: mapUrls(claim.source_urls),
+          support: claim.support,
+          note: claim.note,
+        }))
+        const evidence = interpreted.evidence.map((item) => ({
+          fact: item.fact,
+          source_refs: mapUrls(item.source_urls),
+        }))
+
+        const { error: updateError } = await ctx.supabase.from('company_profile_versions').update({
         company_name: interpreted.company_name, summary: interpreted.summary, industry: interpreted.industry || null,
         business_model: interpreted.business_model || null, products: interpreted.products, services: interpreted.services,
         audiences: interpreted.audiences, geographies: interpreted.geographies, claims, evidence, uncertainty: interpreted.uncertainty,
@@ -181,7 +284,7 @@ Rules:
 
       await ctx.supabase.from('research_jobs').update({
         status: 'succeeded', progress: 100, stage: 'company_intelligence_ready_for_review',
-        output: { model, profile_version_id: profile.id, source_count: packets.length, company_name: interpreted.company_name, uncertainty_count: interpreted.uncertainty.length, usage: record(response).usage ?? null, review_required: true },
+        output: { model, profile_version_id: profile.id, supplied_source_count: packets.length, outside_in_source_count: storedSearchSources.length, company_name: interpreted.company_name, uncertainty_count: interpreted.uncertainty.length, usage: record(response).usage ?? null, review_required: true, outside_in_search: true },
         completed_at: new Date().toISOString(),
       }).eq('id', job.id)
 
@@ -194,12 +297,25 @@ Rules:
         }),
       ])
 
-      return json({ job: { id: job.id, status: 'succeeded', stage: 'company_intelligence_ready_for_review' }, profile: { id: profile.id, company_name: interpreted.company_name, uncertainty_count: interpreted.uncertainty.length }, review_required: true })
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown Company Intelligence interpretation error'
-      await ctx.supabase.from('research_jobs').update({ status: 'failed', stage: 'company_intelligence_interpretation_failed', error: { message, model }, completed_at: new Date().toISOString() }).eq('id', job.id)
-      return json({ error: message, job_id: job.id }, 422)
-    }
+        return
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Unknown Company Intelligence interpretation error'
+        await ctx.supabase.from('research_jobs').update({
+          status: 'failed',
+          stage: 'company_intelligence_interpretation_failed',
+          error: { message, model },
+          completed_at: new Date().toISOString(),
+        }).eq('id', job.id)
+      }
+    })()
+
+    EdgeRuntime.waitUntil(interpretationTask)
+
+    return json({
+      job: { id: job.id, status: 'running', stage: 'verifying_company_outside_in' },
+      pending: true,
+      message: 'Company evidence captured. Riseklix is now verifying the company across the public web in the background.',
+    }, 202)
   }),
 }
 
