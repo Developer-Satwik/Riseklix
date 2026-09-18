@@ -225,14 +225,13 @@ export async function approveCompanyProfile(formData: FormData) {
         const detail = fallback.error
           ? await edgeFunctionErrorMessage(fallback.error)
           : String(fallback.data?.message || fallback.data?.error || 'AI Autopilot could not start')
-        redirect('/projects/' + parsed.data.project_id + '/overview?error=' + encodeURIComponent(detail))
+        redirect('/projects/' + parsed.data.project_id + '/processing?error=' + encodeURIComponent(detail))
       }
 
-      redirect('/projects/' + parsed.data.project_id + '/overview?message=' + encodeURIComponent('Company confirmed. AI Autopilot has started with Buyer Situation research.'))
+      redirect('/projects/' + parsed.data.project_id + '/processing')
     }
 
-    const stage = String(autoData?.stage || 'starting')
-    redirect('/projects/' + parsed.data.project_id + '/overview?message=' + encodeURIComponent('Company confirmed. AI Autopilot is running the rest of the evaluation · ' + stage.replaceAll('_', ' ')))
+    redirect('/projects/' + parsed.data.project_id + '/processing')
   }
 
   redirect(`/projects/${parsed.data.project_id}/buyer-situations?message=${encodeURIComponent('Company profile approved. Buyer Intent generation is now unlocked.')}`)
