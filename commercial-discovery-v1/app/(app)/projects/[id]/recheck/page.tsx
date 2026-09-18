@@ -108,7 +108,7 @@ export default async function RecheckPage({ params, searchParams }: { params: Pr
                 <div className="benchmark-top"><span>{benchmark.benchmark_type} v{benchmark.version}</span><strong>{benchmark.status}</strong></div>
                 <h2>{benchmark.benchmark_type === 'baseline' ? 'Frozen comparison point' : 'Comparable recheck'}</h2>
                 <div className="benchmark-facts">
-                  <div><small>Question expressions</small><strong>{promptCount}</strong></div>
+                  <div><small>Buyer questions</small><strong>{promptCount}</strong></div>
                   <div><small>Buyer intents</small><strong>{typeof config.intent_count === 'number' ? config.intent_count : '—'}</strong></div>
                   <div><small>Repetitions</small><strong>{repetitions}</strong></div>
                   <div><small>AI surfaces</small><strong>{benchmarkSurfaces.length}</strong></div>
