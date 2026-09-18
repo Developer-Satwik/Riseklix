@@ -126,7 +126,7 @@ const handler = {
         let lastPayload: Record<string, unknown> = {}
         let error: string | null = null
 
-        for (let batch = 0; batch < 4; batch++) {
+        for (let batch = 0; batch < 1; batch++) {
           try {
             const payload = plan.provider === 'openai'
               ? { project_id: project.id, benchmark_id: benchmark.id, max_runs: plan.maxRuns }
@@ -157,6 +157,36 @@ const handler = {
                     orchestration_failures: failures,
                     last_error: error,
                     last_error_at: new Date().toISOString(),
+                  },
+                  updated_at: new Date().toISOString(),
+                }).eq('id', surface.id)
+              }
+              break
+            }
+
+            const batchCaptured = Number(lastPayload.captured ?? 0)
+            const batchFailed = Number(lastPayload.failed ?? 0)
+            if (batchFailed > 0 && batchCaptured === 0) {
+              const surface = configured.find((item) => item.provider === plan.provider)
+              const latestError = await ctx.supabase
+                .from('observation_runs')
+                .select('error_message')
+                .eq('benchmark_id', benchmark.id)
+                .eq('provider', plan.provider)
+                .eq('run_status', 'error')
+                .order('created_at', { ascending: false })
+                .limit(1)
+                .maybeSingle()
+              error = latestError.data?.error_message || 'Every observation in the provider batch failed.'
+              if (surface) {
+                await ctx.supabase.from('benchmark_surfaces').update({
+                  status: 'failed',
+                  metadata: {
+                    ...record(surface.metadata),
+                    orchestration_failures: Math.max(1, Number(record(surface.metadata).orchestration_failures || 0)),
+                    last_error: error,
+                    last_error_at: new Date().toISOString(),
+                    automatic_retry_blocked: true,
                   },
                   updated_at: new Date().toISOString(),
                 }).eq('id', surface.id)
