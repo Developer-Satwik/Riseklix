@@ -48,7 +48,6 @@ export function WorkspaceSidebar({
   const [collapsed, setCollapsed] = useState(false)
   const projectsActive = pathname === '/projects' || pathname.startsWith('/projects/')
   const newActive = pathname === '/projects/new'
-  const organizationInitial = organization.trim().charAt(0).toUpperCase() || 'R'
 
   useEffect(() => {
     const stored = window.localStorage.getItem(SIDEBAR_STORAGE_KEY)
@@ -108,7 +107,6 @@ export function WorkspaceSidebar({
       </div>
 
       <div className="sidebar-workspace" title={organization}>
-        <span className="sidebar-workspace-mark" aria-hidden="true">{organizationInitial}</span>
         <span className="sidebar-workspace-copy">
           <small>Workspace</small>
           <strong>{organization}</strong>
