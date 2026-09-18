@@ -109,7 +109,11 @@ const handler = {
 
       const configured = surfaceRows.data ?? []
       const runnablePlans = providerPlans.filter((plan) =>
-        configured.some((surface) => surface.provider === plan.provider && surface.status !== 'complete' && surface.enabled)
+        configured.some((surface) => {
+          if (surface.provider !== plan.provider || surface.status === 'complete' || !surface.enabled) return false
+          const failures = Number(record(surface.metadata).orchestration_failures || 0)
+          return failures < 2
+        })
       )
 
       const headers: Record<string, string> = {
@@ -145,11 +149,12 @@ const handler = {
               error = String(lastPayload.message || lastPayload.error || ('HTTP ' + response.status))
               const surface = configured.find((item) => item.provider === plan.provider)
               if (surface) {
+                const failures = Number(record(surface.metadata).orchestration_failures || 0) + 1
                 await ctx.supabase.from('benchmark_surfaces').update({
-                  status: 'failed',
-                  error_runs: Number(surface.error_runs || 0) + 1,
+                  status: failures >= 2 ? 'failed' : surface.status,
                   metadata: {
                     ...record(surface.metadata),
+                    orchestration_failures: failures,
                     last_error: error,
                     last_error_at: new Date().toISOString(),
                   },
@@ -165,11 +170,12 @@ const handler = {
             error = caught instanceof Error ? caught.message : 'Unknown observation orchestration error'
             const surface = configured.find((item) => item.provider === plan.provider)
             if (surface) {
+              const failures = Number(record(surface.metadata).orchestration_failures || 0) + 1
               await ctx.supabase.from('benchmark_surfaces').update({
-                status: 'failed',
-                error_runs: Number(surface.error_runs || 0) + 1,
+                status: failures >= 2 ? 'failed' : surface.status,
                 metadata: {
                   ...record(surface.metadata),
+                  orchestration_failures: failures,
                   last_error: error,
                   last_error_at: new Date().toISOString(),
                 },
@@ -192,14 +198,24 @@ const handler = {
       const surfaces = refreshed.data ?? []
       const expected = surfaces.reduce((sum, surface) => sum + Number(surface.expected_runs || 0), 0)
       const captured = surfaces.reduce((sum, surface) => sum + Number(surface.captured_runs || 0), 0)
-      const complete = surfaces.length > 0 && surfaces.every((surface) => surface.status === 'complete')
+      const allTerminal = surfaces.length > 0 && surfaces.every((surface) => ['complete','failed'].includes(surface.status))
+      const anyComplete = surfaces.some((surface) => surface.status === 'complete')
+      const complete = allTerminal && anyComplete
+      const allFailed = allTerminal && !anyComplete
       const progress = expected ? Math.min(100, Math.max(1, Math.round((captured / expected) * 100))) : 1
+
+      if (complete || allFailed) {
+        await ctx.supabase.from('benchmarks').update({
+          status: complete ? 'complete' : 'failed',
+          completed_at: new Date().toISOString(),
+        }).eq('id', benchmark.id)
+      }
 
       await ctx.supabase.from('research_jobs').update({
         status: 'succeeded',
         progress,
-        stage: complete ? 'multi_surface_complete' : 'multi_surface_batch_complete',
-        output: { benchmark_id: benchmark.id, results, expected, captured, complete },
+        stage: complete ? 'multi_surface_complete' : allFailed ? 'multi_surface_failed' : 'multi_surface_batch_complete',
+        output: { benchmark_id: benchmark.id, results, expected, captured, complete, all_failed: allFailed },
         completed_at: new Date().toISOString(),
       }).eq('id', job.id)
 
