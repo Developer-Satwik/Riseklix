@@ -17,7 +17,7 @@ export default async function NewProjectPage({ searchParams }: { searchParams: P
           <h1>Which company should Riseklix investigate?</h1>
           <p>Start with the business, not prompts or keywords. Riseklix will research the company first, then ask you to confirm what it understood before anything is benchmarked.</p>
 
-          {error && <div className="form-alert error">{error}</div>}
+          {error && <div className="form-alert error" role="alert">{error}</div>}
 
           <form action={createProject} className="new-project-form">
             <label className="primary-field">Company website
