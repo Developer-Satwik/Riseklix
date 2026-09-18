@@ -1435,3 +1435,42 @@ button[aria-busy="true"]>span:last-child{display:inline-flex;align-items:center}
   font-size:10px;
   line-height:1.5;
 }
+
+
+/* Project list refinement */
+.project-list-company{gap:0}
+.project-list-company>div{min-width:0}
+.project-list-company strong{
+  font-size:14px;
+  line-height:1.25;
+  letter-spacing:-.01em;
+}
+.project-list-company small{
+  margin-top:4px;
+}
+.project-list-mark{display:none}
+
+/* Sidebar logo: use supplied artwork directly, without a tile/background */
+.sidebar-logo-link{
+  display:inline-flex;
+  align-items:center;
+  width:auto;
+  overflow:visible;
+}
+.sidebar-logo-link img{
+  display:block;
+  width:82px;
+  height:auto;
+  object-fit:contain;
+  mix-blend-mode:screen;
+  background:transparent;
+  box-shadow:none;
+}
+.workspace-sidebar .sidebar-product{
+  margin-left:0;
+  margin-top:4px;
+}
+
+@media(max-width:980px){
+  .sidebar-logo-link img{width:68px}
+}
