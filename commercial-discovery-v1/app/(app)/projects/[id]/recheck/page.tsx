@@ -1,5 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
-import { createBaselinePanel, createPostChangeRecheck, runOpenAIObservationBatch } from './actions'
+import { createBaselinePanel, createPostChangeRecheck, runOpenAIObservationBatch, runProviderObservationBatch } from './actions'
 import { PendingButton } from '@/components/pending-button'
 
 function record(value: unknown) {
@@ -111,7 +111,7 @@ export default async function RecheckPage({ params, searchParams }: { params: Pr
                   <div><small>Question expressions</small><strong>{promptCount}</strong></div>
                   <div><small>Buyer intents</small><strong>{typeof config.intent_count === 'number' ? config.intent_count : '—'}</strong></div>
                   <div><small>Repetitions</small><strong>{repetitions}</strong></div>
-                  <div><small>Enabled surfaces</small><strong>{benchmarkSurfaces.length}</strong></div>
+                  <div><small>AI surfaces</small><strong>{benchmarkSurfaces.length}</strong></div>
                 </div>
 
                 <div className="benchmark-progress">
@@ -131,6 +131,14 @@ export default async function RecheckPage({ params, searchParams }: { params: Pr
                     const surfaceRetrieved = surfaceUnaided.filter((run) => run.retrieval_status === 'retrieved')
                     const meta = record(surfaceConfig.metadata)
                     const isOpenAI = surfaceConfig.provider === 'openai' && surfaceConfig.surface === 'openai_responses_web_search'
+                    const canRunProvider = ['google','anthropic','perplexity'].includes(surfaceConfig.provider)
+                    const buttonLabel = surfaceConfig.provider === 'google'
+                      ? (surfaceConfig.captured_runs ? 'Run next Gemini batch' : 'Start Gemini observations')
+                      : surfaceConfig.provider === 'anthropic'
+                        ? (surfaceConfig.captured_runs ? 'Run next Claude batch' : 'Start Claude observations')
+                        : surfaceConfig.provider === 'perplexity'
+                          ? (surfaceConfig.captured_runs ? 'Run next Perplexity batch' : 'Start Perplexity observations')
+                          : ''
 
                     return (
                       <section className="observation-surface" key={surfaceConfig.id}>
@@ -144,7 +152,15 @@ export default async function RecheckPage({ params, searchParams }: { params: Pr
                             <form action={runOpenAIObservationBatch}>
                               <input type="hidden" name="project_id" value={id} />
                               <input type="hidden" name="benchmark_id" value={benchmark.id} />
-                              <PendingButton pendingLabel="Collecting observations…">{surfaceConfig.captured_runs ? 'Run next 4 observations' : 'Start OpenAI baseline'}</PendingButton>
+                              <PendingButton pendingLabel="Collecting OpenAI observations…">{surfaceConfig.captured_runs ? 'Run next OpenAI batch' : 'Start OpenAI observations'}</PendingButton>
+                            </form>
+                          )}
+                          {canRunProvider && surfaceConfig.status !== 'complete' && (
+                            <form action={runProviderObservationBatch}>
+                              <input type="hidden" name="project_id" value={id} />
+                              <input type="hidden" name="benchmark_id" value={benchmark.id} />
+                              <input type="hidden" name="provider" value={surfaceConfig.provider} />
+                              <PendingButton pendingLabel="Collecting observations…">{buttonLabel}</PendingButton>
                             </form>
                           )}
                         </div>
