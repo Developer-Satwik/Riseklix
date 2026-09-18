@@ -5,8 +5,9 @@ function decisionLabel(value: string) {
   return value === 'fix' ? 'Fix' : value === 'investigate' ? 'Investigate' : value === 'monitor' ? 'Monitor' : value === 'healthy' || value === 'no_change' ? 'Healthy' : 'Review'
 }
 
-export default async function ProjectOverview({ params }: { params: Promise<{ id: string }> }) {
+export default async function ProjectOverview({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const { id } = await params
+  const query = await searchParams
   const supabase = await createClient()
 
   const [
@@ -18,7 +19,7 @@ export default async function ProjectOverview({ params }: { params: Promise<{ id
     { data: benchmark },
     { data: promptExpressions },
   ] = await Promise.all([
-    supabase.from('projects').select('name,domain,market,status').eq('id', id).single(),
+    supabase.from('projects').select('name,domain,market,status,analysis_mode').eq('id', id).single(),
     supabase.from('company_profile_versions').select('status,company_name').eq('project_id', id).eq('is_current', true).maybeSingle(),
     supabase.from('buyer_intents').select('id,status,priority').eq('project_id', id),
     supabase.from('findings').select('id,observed,severity,decision,evidence_strength,review_status,created_at').eq('project_id', id).order('created_at', { ascending: false }).limit(5),
@@ -30,6 +31,9 @@ export default async function ProjectOverview({ params }: { params: Promise<{ id
   const { data: surfaces } = benchmark
     ? await supabase.from('benchmark_surfaces').select('id,provider,surface,status,expected_runs,captured_runs,error_runs').eq('benchmark_id', benchmark.id)
     : { data: [] }
+
+  const pageMessage = typeof query.message === 'string' ? query.message : null
+  const pageError = typeof query.error === 'string' ? query.error : null
 
   const approved = intents?.filter((intent) => intent.status === 'approved').length ?? 0
   const candidates = intents?.filter((intent) => intent.status === 'candidate').length ?? 0
@@ -100,6 +104,18 @@ export default async function ProjectOverview({ params }: { params: Promise<{ id
 
   return (
     <div className="project-page overview-page">
+      {pageError && <div className="form-alert error" role="alert">{pageError}</div>}
+      {pageMessage && <div className="form-alert success" role="status" aria-live="polite">{pageMessage}</div>}
+      {project?.analysis_mode === 'autopilot' && (
+        <section className="autopilot-banner">
+          <div>
+            <div className="eyebrow">AI AUTOPILOT</div>
+            <strong>{project.status === 'complete' ? 'Evaluation complete.' : 'Riseklix is handling the evaluation automatically.'}</strong>
+            <p>{project.status === 'complete' ? 'The company profile was the only required confirmation. Review the findings and evidence whenever you want.' : 'After the Company Intelligence confirmation, Buyer Situations, competitors, buyer questions, model testing and WHY analysis advance without additional approval gates.'}</p>
+          </div>
+          <span>{project.status}</span>
+        </section>
+      )}
       <section className="overview-hero">
         <div className="eyebrow">CURRENT READ</div>
         <div className="overview-hero-grid">
