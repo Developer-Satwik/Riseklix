@@ -25,6 +25,30 @@ function lines(value?: string) {
     .slice(0, 100)
 }
 
+
+async function edgeFunctionErrorMessage(error: unknown) {
+  const candidate = error as { message?: string; context?: unknown } | null
+  const fallback = candidate?.message || 'Edge Function request failed'
+  const context = candidate?.context
+  if (context instanceof Response) {
+    try {
+      const payload = await context.clone().json() as { error?: string; message?: string }
+      if (payload?.error === 'reasoning_provider_not_configured') {
+        return 'OPENAI_API_KEY is not configured in Supabase Edge Function Secrets. Add an OpenAI API key with API billing enabled, then retry company research.'
+      }
+      return payload?.message || payload?.error || fallback
+    } catch {
+      try {
+        const text = await context.clone().text()
+        return text || fallback
+      } catch {
+        return fallback
+      }
+    }
+  }
+  return fallback
+}
+
 async function authenticatedClient() {
   const supabase = await createClient()
   const { data: claims, error } = await supabase.auth.getClaims()
@@ -52,7 +76,8 @@ export async function runCompanyResearch(formData: FormData) {
   })
 
   if (interpretation.error) {
-    redirect('/projects/' + parsed.data.project_id + '/company-profile?message=' + encodeURIComponent(captureMessage + ' Company Intelligence interpretation could not start: ' + interpretation.error.message))
+    const detail = await edgeFunctionErrorMessage(interpretation.error)
+    redirect('/projects/' + parsed.data.project_id + '/company-profile?error=' + encodeURIComponent(captureMessage + ' ' + detail))
   }
 
   if (interpretation.data?.error) {
