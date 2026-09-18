@@ -1272,3 +1272,42 @@ button:disabled{cursor:not-allowed}
   .method-surface-list article{grid-template-columns:1fr}
   .method-surface-list article>div:last-child{text-align:left}
 }
+
+
+/* Delivery verification — explicitly separate execution from AI impact */
+.delivery-workflow{
+  margin-top:14px;border:1px solid var(--border);border-radius:10px;background:#101012;padding:15px
+}
+.delivery-workflow-head{
+  display:flex;align-items:flex-start;justify-content:space-between;gap:24px
+}
+.delivery-workflow-head h3{font:400 22px/1.1 var(--serif);margin:6px 0 5px}
+.delivery-workflow-head p{font-size:10px;color:var(--subtle);line-height:1.5;max-width:700px;margin:0}
+.delivery-workflow-head>span{
+  flex:none;font-size:8px;text-transform:uppercase;letter-spacing:.08em;color:var(--gold);
+  border:1px solid #4b412e;border-radius:999px;padding:5px 7px
+}
+.delivery-inputs{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:14px}
+.delivery-inputs label{display:grid;gap:5px;font-size:9px;color:var(--subtle)}
+.delivery-inputs label small{font-size:8px;color:var(--faint)}
+.delivery-inputs input,.delivery-inputs textarea{
+  width:100%;border:1px solid var(--border);border-radius:8px;background:#0c0c0e;color:var(--text);
+  padding:10px;font-size:11px;outline:0
+}
+.delivery-inputs textarea{min-height:78px;resize:vertical}
+.delivery-inputs input:focus,.delivery-inputs textarea:focus{border-color:var(--border-strong)}
+.delivery-status-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:11px}
+.delivery-status-actions button{
+  min-height:34px;border:1px solid var(--border);border-radius:7px;background:transparent;
+  color:var(--muted);padding:0 10px;font-size:9px;font-weight:700
+}
+.delivery-status-actions button:hover,.delivery-status-actions button.active{border-color:#655942;background:#18150f;color:#d8c59d}
+.delivery-status-actions button.verified{margin-left:auto}
+.delivery-status-actions button.verified.active{border-color:#3f5a46;background:var(--sage-soft);color:#b7d0bc}
+
+@media(max-width:700px){
+  .delivery-workflow-head{display:block}
+  .delivery-workflow-head>span{display:inline-block;margin-top:10px}
+  .delivery-inputs{grid-template-columns:1fr}
+  .delivery-status-actions button.verified{margin-left:0}
+}
