@@ -2,11 +2,13 @@ import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import { revokeOtherSessions, updateProfile, updateResearchDefaults, updateWorkspace } from './actions'
 import { SettingsForm } from '@/components/settings-form'
+import { AnalysisNotificationSetting } from '@/components/analysis-notification-setting'
 
 const settingsNav = [
   ['profile', 'Profile'],
   ['workspace', 'Workspace'],
   ['research', 'Research defaults'],
+  ['notifications', 'Notifications'],
   ['security', 'Security'],
   ['data', 'Data & support'],
 ] as const
@@ -265,6 +267,19 @@ export default async function SettingsPage({
               </div>
 
             </SettingsForm>
+          </section>
+
+          <section className="settings-section" id="notifications">
+            <header>
+              <div>
+                <span>Autopilot</span>
+                <h2>Notifications</h2>
+                <p>Control completion alerts for long-running Commercial Discovery analyses.</p>
+              </div>
+            </header>
+            <div className="settings-form">
+              <AnalysisNotificationSetting />
+            </div>
           </section>
 
           <section className="settings-section" id="security">
