@@ -6,6 +6,7 @@ export default async function NewProjectPage({ searchParams }: { searchParams: P
   const params = await searchParams
   const domain = typeof params.domain === 'string' ? params.domain : ''
   const error = typeof params.error === 'string' ? params.error : null
+  const welcome = params.welcome === '1'
 
   return (
     <div className="new-project-shell new-analysis-page">
@@ -17,6 +18,7 @@ export default async function NewProjectPage({ searchParams }: { searchParams: P
           <h1>Which company should Riseklix investigate?</h1>
           <p>Start with the business, not prompts or keywords. Riseklix will research the company first, then ask you to confirm what it understood before anything is benchmarked.</p>
 
+          {welcome && <div className="form-alert success" role="status">Workspace ready. Start with the first company you want Riseklix to investigate.</div>}
           {error && <div className="form-alert error" role="alert">{error}</div>}
 
           <form action={createProject} className="new-project-form">
