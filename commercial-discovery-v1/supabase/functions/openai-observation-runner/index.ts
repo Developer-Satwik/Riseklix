@@ -1,5 +1,6 @@
 import { withSupabase } from 'npm:@supabase/server'
 import OpenAI from 'npm:openai'
+import type { SupabaseClient } from 'npm:@supabase/supabase-js'
 
 type RequestBody = {
   project_id?: string
@@ -143,7 +144,7 @@ async function extractBrands(openai: OpenAI, model: string, answer: string, targ
   return JSON.parse(raw) as Extraction
 }
 
-async function benchmarkCompletion(ctx: { supabase: any }, benchmarkId: string) {
+async function benchmarkCompletion(ctx: { supabase: SupabaseClient }, benchmarkId: string) {
   const { data: surfaces } = await ctx.supabase
     .from('benchmark_surfaces')
     .select('status,enabled')
@@ -160,7 +161,7 @@ async function benchmarkCompletion(ctx: { supabase: any }, benchmarkId: string) 
   return complete
 }
 
-export default {
+const handler = {
   fetch: withSupabase({ auth: 'user' }, async (req, ctx) => {
     if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405)
 
@@ -449,3 +450,5 @@ export default {
     })
   }),
 }
+
+export default handler
