@@ -15,6 +15,7 @@ export function WorkspaceSidebar({
   const pathname = usePathname()
   const projectsActive = pathname === '/projects' || pathname.startsWith('/projects/')
   const newActive = pathname === '/projects/new'
+  const settingsActive = pathname === '/settings'
   const initials = displayName
     .split(/\s+/)
     .filter(Boolean)
@@ -42,6 +43,10 @@ export function WorkspaceSidebar({
         <Link href="/projects/new" className={newActive ? 'active' : ''}>
           <span className="sidebar-nav-plus" aria-hidden="true">+</span>
           New analysis
+        </Link>
+        <Link href="/settings" className={settingsActive ? 'active' : ''}>
+          <span className="sidebar-nav-dot" aria-hidden="true" />
+          Settings
         </Link>
       </nav>
 
