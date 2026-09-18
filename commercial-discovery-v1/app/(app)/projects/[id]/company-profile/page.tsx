@@ -1,3 +1,4 @@
+import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import { approveCompanyProfile, runCompanyResearch, saveCompanyProfile } from './actions'
 
@@ -5,6 +6,10 @@ function listText(value: unknown) {
   return Array.isArray(value)
     ? value.map((item) => typeof item === 'string' ? item : JSON.stringify(item)).join('\n')
     : ''
+}
+
+function list(value: unknown) {
+  return Array.isArray(value) ? value.map((item) => typeof item === 'string' ? item : JSON.stringify(item)) : []
 }
 
 export default async function CompanyProfilePage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<Record<string, string | string[] | undefined>> }) {
@@ -21,36 +26,123 @@ export default async function CompanyProfilePage({ params, searchParams }: { par
   const error = typeof query.error === 'string' ? query.error : null
   const message = typeof query.message === 'string' ? query.message : null
   const approved = profile?.status === 'approved'
+  const products = list(profile?.products)
+  const services = list(profile?.services)
+  const audiences = list(profile?.audiences)
+  const geographies = list(profile?.geographies)
+  const uncertainty = list(profile?.uncertainty)
 
   return (
-    <div className="project-page">
+    <div className="project-page profile-page">
       <section className="page-header compact">
         <div>
           <div className="eyebrow">COMPANY INTELLIGENCE</div>
-          <h1>Here’s what Riseklix thinks this business actually does.</h1>
-          <p>Company intelligence is versioned and approved before buyer situations are generated. Research evidence stays separate from user-confirmed facts, and uncertainty remains visible instead of being silently filled in.</p>
+          <h1>First, make sure Riseklix understands the business.</h1>
+          <p>The company premise is approved before Buyer Situations exist. Public evidence, user-confirmed facts and uncertainty stay visibly separate.</p>
         </div>
       </section>
 
       {error && <div className="form-alert error">{error}</div>}
       {message && <div className="form-alert success">{message}</div>}
 
-      <section className="research-placeholder live-research">
+      <section className="profile-research-strip">
         <div>
-          <div className="eyebrow">FIRST-PARTY RESEARCH</div>
-          <h2>{job?.status === 'succeeded' ? 'First-party evidence set captured.' : job?.status === 'failed' ? 'The latest crawl needs attention.' : 'Start with the company’s own evidence.'}</h2>
-          <p>The live research worker checks the homepage, sitemap and high-value internal pages, then stores bounded text evidence and snapshot hashes before any AI interpretation is allowed to use those facts.</p>
-          {job && <div className="job-line"><span>{job.status}</span><span>{job.stage ?? 'queued'}</span><span>{job.progress}%</span></div>}
+          <span className="research-state-dot" data-state={job?.status || 'not_started'} aria-hidden="true" />
+          <div>
+            <div className="eyebrow">FIRST-PARTY RESEARCH</div>
+            <strong>{job?.status === 'succeeded' ? (sources?.length ?? 0) + ' source' + (sources?.length === 1 ? '' : 's') + ' captured' : job?.status === 'failed' ? 'Latest capture needs attention' : job?.status === 'running' ? 'Research in progress' : 'Not started'}</strong>
+            <small>{job?.stage ? job.stage.replaceAll('_', ' ') : 'Homepage, sitemap and high-value commercial pages'}</small>
+          </div>
         </div>
         <form action={runCompanyResearch}>
           <input type="hidden" name="project_id" value={id} />
-          <button type="submit">{job?.status === 'succeeded' ? 'Reuse / refresh research capture' : 'Run company research'}</button>
+          <button type="submit">{job?.status === 'succeeded' ? 'Refresh evidence' : 'Run company research'}</button>
         </form>
       </section>
 
+      {profile && (
+        <>
+          <section className="profile-snapshot">
+            <header>
+              <div>
+                <div className="eyebrow">OUR CURRENT UNDERSTANDING</div>
+                <h2>{profile.company_name}</h2>
+                <p>{profile.summary || 'No company summary has been confirmed yet.'}</p>
+              </div>
+              <span className={approved ? 'profile-status approved' : 'profile-status'}>{approved ? 'Approved' : 'Needs review'}</span>
+            </header>
+
+            <div className="profile-snapshot-grid">
+              <div>
+                <small>Business model</small>
+                <strong>{profile.business_model || 'Needs confirmation'}</strong>
+              </div>
+              <div>
+                <small>Industry</small>
+                <strong>{profile.industry || 'Needs confirmation'}</strong>
+              </div>
+            </div>
+
+            <div className="profile-fact-group">
+              <small>What you sell / provide</small>
+              <div className="fact-chips">{[...products, ...services].slice(0, 12).map((item) => <span key={item}>{item}</span>)}</div>
+              {!products.length && !services.length && <p>Nothing confirmed yet.</p>}
+            </div>
+
+            <div className="profile-fact-columns">
+              <div>
+                <small>Likely buyer groups</small>
+                <ul>{audiences.slice(0, 8).map((item) => <li key={item}>{item}</li>)}</ul>
+                {!audiences.length && <p>Needs confirmation.</p>}
+              </div>
+              <div>
+                <small>Geographies</small>
+                <ul>{geographies.slice(0, 8).map((item) => <li key={item}>{item}</li>)}</ul>
+                {!geographies.length && <p>Needs confirmation.</p>}
+              </div>
+            </div>
+
+            <div className="uncertainty-box">
+              <div className="eyebrow">WHAT WE ARE LESS CERTAIN ABOUT</div>
+              {uncertainty.length ? <ul>{uncertainty.slice(0, 8).map((item) => <li key={item}>{item}</li>)}</ul> : <p>No explicit uncertainty recorded. That does not mean every public claim is independently verified.</p>}
+            </div>
+          </section>
+
+          <div className="profile-decision-row">
+            <details className="profile-editor" open={!approved}>
+              <summary>{approved ? 'Edit company context' : 'Review and correct company context'}<span>Every edit reopens this approval gate.</span></summary>
+              <form action={saveCompanyProfile} className="profile-review-form">
+                <input type="hidden" name="project_id" value={id} />
+                <label>Company name<input name="company_name" defaultValue={profile.company_name ?? ''} required /></label>
+                <label>Industry<input name="industry" defaultValue={profile.industry ?? ''} placeholder="e.g. industrial access equipment" /></label>
+                <label className="full">Business model<input name="business_model" defaultValue={profile.business_model ?? ''} placeholder="e.g. manufacture + sale + rental + installation" /></label>
+                <label className="full">Company summary<textarea name="summary" defaultValue={profile.summary ?? ''} minLength={20} required /></label>
+                <label>Products<textarea name="products" defaultValue={listText(profile.products)} placeholder={'Aluminium scaffolding\nFRP ladders'} /></label>
+                <label>Services / how customers buy<textarea name="services" defaultValue={listText(profile.services)} placeholder={'Purchase\nRental\nInstallation support'} /></label>
+                <label>Buyer groups<textarea name="audiences" defaultValue={listText(profile.audiences)} placeholder={'EPC contractors\nFacility managers'} /></label>
+                <label>Geographies<textarea name="geographies" defaultValue={listText(profile.geographies)} placeholder={'India\nDelhi NCR\nMumbai'} /></label>
+                <label className="full">What we are less certain about<textarea name="uncertainty" defaultValue={listText(profile.uncertainty)} placeholder={'Exact local inventory by depot\nGuaranteed response SLA'} /></label>
+                <div className="profile-form-actions full"><button type="submit">Save reviewed profile</button></div>
+              </form>
+            </details>
+
+            <form action={approveCompanyProfile} className={approved ? 'profile-approval-card approved' : 'profile-approval-card'}>
+              <input type="hidden" name="project_id" value={id} />
+              <div className="eyebrow">HUMAN APPROVAL GATE</div>
+              <h3>{approved ? 'Company context approved.' : 'Does this materially describe the business correctly?'}</h3>
+              <p>Approval unlocks Buyer Situation generation. It does not certify every external claim as true.</p>
+              <button type="submit" disabled={approved}>{approved ? 'Approved' : 'Approve company context'}</button>
+            </form>
+          </div>
+        </>
+      )}
+
       {!!sources?.length && (
-        <section className="evidence-panel">
-          <div className="eyebrow">CAPTURED EVIDENCE</div>
+        <details className="evidence-drawer">
+          <summary>
+            <span><strong>Evidence view</strong><small>{sources.length} captured first-party source{sources.length === 1 ? '' : 's'}</small></span>
+            <span aria-hidden="true">+</span>
+          </summary>
           <div className="evidence-list">
             {sources.map((source) => {
               const metadata = source.metadata && typeof source.metadata === 'object' && !Array.isArray(source.metadata) ? source.metadata as Record<string, unknown> : {}
@@ -62,50 +154,19 @@ export default async function CompanyProfilePage({ params, searchParams }: { par
                     <strong>{source.title || source.url}</strong>
                     <a href={source.url} target="_blank" rel="noreferrer">{source.url}</a>
                   </div>
-                  <small>{source.captured_at ? new Date(source.captured_at).toLocaleString() : 'Not timestamped'} · {typeof metadata.http_status === 'number' ? `HTTP ${metadata.http_status}` : 'status unknown'}</small>
+                  <small>{source.captured_at ? new Date(source.captured_at).toLocaleString() : 'Not timestamped'} · {typeof metadata.http_status === 'number' ? 'HTTP ' + metadata.http_status : 'status unknown'}</small>
                 </article>
               )
             })}
           </div>
-        </section>
-      )}
-
-      {profile && (
-        <section className="profile-review-section">
-          <div className="review-heading">
-            <div><div className="eyebrow">HUMAN APPROVAL GATE</div><h2>Review the commercial context before we generate Buyer Intents.</h2></div>
-            <span className={`profile-state ${approved ? 'approved' : ''}`}>{profile.status}</span>
-          </div>
-          <p className="review-intro">One line per item. Saving an already-approved profile moves it back to draft review so a changed business premise can never silently rewrite an existing benchmark.</p>
-
-          <form action={saveCompanyProfile} className="profile-review-form">
-            <input type="hidden" name="project_id" value={id} />
-            <label>Company name<input name="company_name" defaultValue={profile.company_name ?? ''} required /></label>
-            <label>Industry<input name="industry" defaultValue={profile.industry ?? ''} placeholder="e.g. industrial access equipment" /></label>
-            <label className="full">Business model<input name="business_model" defaultValue={profile.business_model ?? ''} placeholder="e.g. manufacture + sale + rental + installation" /></label>
-            <label className="full">Company summary<textarea name="summary" defaultValue={profile.summary ?? ''} minLength={20} required /></label>
-            <label>Products<textarea name="products" defaultValue={listText(profile.products)} placeholder={'Aluminium scaffolding\nFRP ladders'} /></label>
-            <label>Services / how customers buy<textarea name="services" defaultValue={listText(profile.services)} placeholder={'Purchase\nRental\nInstallation support'} /></label>
-            <label>Buyer groups<textarea name="audiences" defaultValue={listText(profile.audiences)} placeholder={'EPC contractors\nFacility managers'} /></label>
-            <label>Geographies<textarea name="geographies" defaultValue={listText(profile.geographies)} placeholder={'India\nDelhi NCR\nMumbai'} /></label>
-            <label className="full">What we are less certain about<textarea name="uncertainty" defaultValue={listText(profile.uncertainty)} placeholder={'Exact local inventory by depot\nGuaranteed response SLA'} /></label>
-            <div className="profile-form-actions full">
-              <button type="submit">Save reviewed profile</button>
-            </div>
-          </form>
-
-          <form action={approveCompanyProfile} className="approval-panel">
-            <input type="hidden" name="project_id" value={id} />
-            <div><div className="eyebrow">APPROVAL</div><strong>{approved ? 'Company context approved.' : 'Only approve when the business context is materially correct.'}</strong><p>Approval unlocks Buyer Intent generation. It does not certify every public claim as true; evidence strength remains attached separately.</p></div>
-            <button type="submit" disabled={approved}>{approved ? 'Approved' : 'Approve + unlock Buyer Situations'}</button>
-          </form>
-        </section>
+        </details>
       )}
 
       <section className="next-step-panel">
-        <div className="eyebrow">NEXT RESEARCH STAGE</div>
-        <h2>{approved ? 'Generate commercial Buyer Intent candidates from the approved profile.' : 'Finish the Company Intelligence review.'}</h2>
-        <p>{approved ? 'The next engine will combine buyer, job, constraint, required capability, geography and commercial model before producing any prompt wording.' : 'Riseklix will not treat prompt generation as ground truth until this company premise is approved.'}</p>
+        <div className="eyebrow">NEXT</div>
+        <h2>{approved ? 'Now model the situations where buyers could legitimately consider you.' : 'Approve the company premise before anything downstream is allowed to look certain.'}</h2>
+        <p>{approved ? 'Riseklix will combine buyer, job, constraint, required capability, geography and commercial model before it creates any prompt wording.' : 'This gate protects every later benchmark from being built on the wrong understanding of the business.'}</p>
+        {approved && <Link href={'/projects/' + id + '/buyer-situations'} className="next-step-link">Open Buyer Situations →</Link>}
       </section>
     </div>
   )
