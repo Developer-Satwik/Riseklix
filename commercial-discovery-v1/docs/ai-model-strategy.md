@@ -2,61 +2,69 @@
 
 ## Principle
 
-Use the strongest model where commercial reasoning quality is the product, and use low-cost / market-representative models where the goal is high-volume observation or deterministic extraction.
+Use the strongest model where commercial reasoning quality is the product. Use lower-cost / market-representative models where the job is high-volume observation, prompt wording, or deterministic extraction.
 
-## Current OpenAI role map
+## Reasoning and utility roles
 
 | Role | Default model | Why |
 | --- | --- | --- |
-| Company Intelligence interpretation | GPT-5.6 Sol | Core commercial reasoning; low volume |
-| Buyer Intent Suggestor | GPT-5.6 Sol | Core differentiator; needs deep reasoning |
-| Intent-specific competitor discovery | GPT-5.6 Sol + web search | Research quality matters more than marginal token cost |
+| Company Intelligence + outside-in verification | GPT-5.6 Sol | Core commercial reasoning and company reconstruction |
+| Buyer Intent Suggestor | GPT-5.6 Sol | Core differentiator; needs deep commercial reasoning |
+| Intent-specific competitor discovery | GPT-5.6 Sol + web search | Relevance and fit matter more than marginal token cost |
 | WHY evaluator | GPT-5.6 Sol | Evidence-bounded synthesis is high-value reasoning |
 | Blueprint generator | GPT-5.6 Terra | Strong implementation quality with better cost balance |
-| Prompt-expression generator | GPT-5.6 Luna | Controlled wording task, high volume |
-| Brand/rank extractor | GPT-5.6 Luna | Structured extraction from an existing answer |
-| OpenAI observation proxy | GPT-5.6 Luna | Closest API model to the current ChatGPT Free model |
+| Buyer-question generator | GPT-5.6 Luna | Controlled natural-language wording task |
+| Brand/rank extractor | GPT-5.6 Luna | Structured extraction from an already-produced answer |
+
+## Observation surfaces
+
+Approved buyer questions are frozen once, then reused across every enabled observation surface. Results remain separated by provider/surface.
+
+| Provider | Default API surface | Default model | Consumer equivalence |
+| --- | --- | --- | --- |
+| OpenAI | Responses API + web search | GPT-5.6 Luna | Approximate free-plan proxy |
+| Google | Gemini GenerateContent + Google Search | Gemini 3.8 Flash | Approximate API proxy |
+| Anthropic | Messages API + server web search | Claude Sonnet 5 | Approximate API proxy |
+| Perplexity | Sonar API | Sonar | Approximate API proxy |
+
+The same question text, language, geography policy and repetition count should be used on every enabled surface. This gives us a comparable panel without pretending the products are internally identical.
 
 ## Consumer-app equivalence
 
 API observations are not represented as the consumer app.
 
-For OpenAI, the observation surface defaults to GPT-5.6 Luna, no explicit reasoning, and automatic web-search tool use. This is intentionally labelled a **free-plan proxy** because ChatGPT Free currently uses GPT-5.6 Luna, but the ChatGPT consumer product still has its own system instructions, routing, personalization, UI behavior and search decisions.
+Each observation stores:
 
-Do not label API results as “ChatGPT Free rank” or “what ChatGPT users see.”
+- provider
+- exact API surface
+- resolved model label
+- language
+- geography
+- fresh-session policy
+- search/grounding mode
+- full answer
+- citations
+- capture status
+- retrieval status
+- repetition
 
-The same rule applies when Gemini, Claude and Perplexity observation adapters are added:
-
-- record provider
-- record exact surface
-- record model label when known
-- record plan/proxy policy
-- keep consumer-product behavior separate from API behavior
-
-Perplexity Standard is especially important: the free product says it chooses the best model for the query, so a single fixed API model cannot be claimed to reproduce the Standard consumer experience.
+Never label an API result as “what ChatGPT/Gemini/Claude/Perplexity users see.” Consumer apps can add routing, product-level system instructions, personalization, location handling and search decisions that are not reproduced by the API.
 
 ## Secret handling
 
-The only required secret for the current OpenAI-backed V1 workers is:
+Provider keys belong in Supabase Edge Function Secrets:
 
-`OPENAI_API_KEY`
-
-It belongs in Supabase Edge Function Secrets, never in:
-
-- GitHub source
-- `.env.example`
-- browser-side `NEXT_PUBLIC_*` variables
-- the application database
-- chat messages
-
-ChatGPT subscriptions and OpenAI API billing are separate. The API organization must have API billing/credits enabled.
-
-## Future provider secrets
-
-When additional observation providers are implemented, use provider-specific Edge Function secrets, for example:
-
-- `ANTHROPIC_API_KEY`
+- `OPENAI_API_KEY`
 - `GEMINI_API_KEY`
+- `ANTHROPIC_API_KEY`
 - `PERPLEXITY_API_KEY`
 
-Those keys should power separately declared observation surfaces rather than being abstracted into a fake universal “AI rank.”
+Never put provider secrets in GitHub, `.env.example`, browser-side `NEXT_PUBLIC_*` variables, the application database, or chat messages.
+
+Provider subscriptions and API billing are separate products. Each API account must have the relevant billing / quota enabled.
+
+## Product rule
+
+Riseklix does not produce one blended “AI visibility score” and hide where it came from.
+
+The product should show the buyer question once, then the observed answer/result from each declared surface separately. Cross-model summaries are derived only after the underlying evidence remains inspectable.
