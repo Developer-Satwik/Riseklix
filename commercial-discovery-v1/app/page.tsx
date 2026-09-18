@@ -4,7 +4,7 @@ export default function HomePage() {
   return (
     <main className="landing-shell">
       <header className="landing-nav">
-        <Link href="/" className="wordmark brand-wordmark" aria-label="Riseklix"><img src="/riseklix-logo.png" alt="Riseklix" /></Link>
+        <Link href="/" className="wordmark brand-wordmark" aria-label="Riseklix"><span className="brand-mark" aria-hidden="true" /><strong>RISEKLIX</strong></Link>
         <div className="landing-nav-actions">
           <span>Commercial Discovery</span>
           <Link href="/login" className="quiet-button">Sign in</Link>
