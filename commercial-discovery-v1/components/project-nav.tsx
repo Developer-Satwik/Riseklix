@@ -28,13 +28,22 @@ export function ProjectNav({ projectId }: { projectId: string }) {
           )
         })}
       </nav>
-      <Link
-        href={`/projects/${projectId}/company-profile`}
-        className={pathname.includes('/company-profile') ? 'project-profile-link active' : 'project-profile-link'}
-        aria-current={pathname.includes('/company-profile') ? 'page' : undefined}
-      >
-        Company profile
-      </Link>
+      <div className="project-utility-nav">
+        <Link
+          href={`/projects/${projectId}/method`}
+          className={pathname.includes('/method') ? 'project-profile-link active' : 'project-profile-link'}
+          aria-current={pathname.includes('/method') ? 'page' : undefined}
+        >
+          Method
+        </Link>
+        <Link
+          href={`/projects/${projectId}/company-profile`}
+          className={pathname.includes('/company-profile') ? 'project-profile-link active' : 'project-profile-link'}
+          aria-current={pathname.includes('/company-profile') ? 'page' : undefined}
+        >
+          Company profile
+        </Link>
+      </div>
     </div>
   )
 }
