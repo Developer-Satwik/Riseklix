@@ -148,7 +148,10 @@ const handler = {
 
     if (projectError || profileError || sourceError || !project || !profile) return json({ error: 'Project context could not be loaded' }, 404)
     if (profile.status === 'approved') return json({ error: 'approved_profile_is_immutable', message: 'The current Company Intelligence Profile is already approved. Edit it before requesting a new interpretation.' }, 409)
-    const packets = (sources ?? []).map(sourcePacket).filter((source) => source.text_sample.length > 60)
+    const packets = (sources ?? [])
+      .map(sourcePacket)
+      .filter((source) => source.text_sample.length > 60)
+      .filter((source) => source.source_type === 'first_party' || source.acquisition_method === 'indexed_first_party_fallback')
 
     const model = Deno.env.get('RISEKLIX_COMPANY_MODEL') || 'gpt-5.6-sol'
     const sourceSignature = packets.length ? packets.map((source) => source.ref).sort().join(':') : 'outside-in-only'
