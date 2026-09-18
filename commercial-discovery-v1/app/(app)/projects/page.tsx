@@ -1,5 +1,6 @@
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
+import { AnalysisDeleteControl } from '@/components/analysis-delete-control'
 
 function stageCopy(status: string) {
   if (status === 'draft' || status === 'profile_review') return ['Company Intelligence', 'Confirm what Riseklix learned about the business.']
@@ -10,15 +11,35 @@ function stageCopy(status: string) {
   return ['In progress', 'Continue the research workflow.']
 }
 
-export default async function ProjectsPage() {
+export default async function ProjectsPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>
+}) {
+  const params = await searchParams
+  const pageError = typeof params.error === 'string' ? params.error : null
+  const pageMessage = typeof params.message === 'string' ? params.message : null
   const supabase = await createClient()
   const { data: projects, error } = await supabase
     .from('projects')
-    .select('id,name,domain,market,status,updated_at')
+    .select('id,workspace_id,name,domain,market,status,updated_at')
     .order('updated_at', { ascending: false })
 
   const active = projects?.filter((project) => !['complete', 'archived'].includes(project.status)).length ?? 0
   const complete = projects?.filter((project) => project.status === 'complete').length ?? 0
+
+  const { data: claims } = await supabase.auth.getClaims()
+  const userId = claims?.claims?.sub
+  const { data: memberships } = typeof userId === 'string'
+    ? await supabase
+      .from('workspace_members')
+      .select('workspace_id,role')
+      .eq('user_id', userId)
+    : { data: [] }
+
+  const ownerWorkspaceIds = new Set(
+    (memberships ?? []).filter((item) => item.role === 'owner').map((item) => item.workspace_id),
+  )
 
   return (
     <div className="page-wrap workspace-projects-page">
@@ -31,6 +52,8 @@ export default async function ProjectsPage() {
         <Link href="/projects/new" className="primary-link">New analysis <span aria-hidden="true">+</span></Link>
       </header>
 
+      {pageError && <div className="form-alert error" role="alert">{pageError}</div>}
+      {pageMessage && <div className="form-alert success" role="status" aria-live="polite">{pageMessage}</div>}
       {error && <div className="form-alert error" role="alert">Could not load projects: {error.message}</div>}
 
       {!!projects?.length && (
@@ -46,14 +69,21 @@ export default async function ProjectsPage() {
             {projects.map((project) => {
               const [stage, description] = stageCopy(project.status)
               return (
-                <Link key={project.id} href={'/projects/' + project.id + '/overview'} className="project-list-row">
-                  <div className="project-list-company">
-                    <div><strong>{project.name}</strong><small>{project.domain} · {project.market}</small></div>
-                  </div>
-                  <div className="project-list-stage"><strong>{stage}</strong><small>{description}</small></div>
-                  <time>{new Date(project.updated_at).toLocaleDateString()}</time>
-                  <span className="project-list-arrow" aria-hidden="true">→</span>
-                </Link>
+                <div key={project.id} className="project-list-row">
+                  <Link href={'/projects/' + project.id + '/overview'} className="project-list-row-main">
+                    <div className="project-list-company">
+                      <div><strong>{project.name}</strong><small>{project.domain} · {project.market}</small></div>
+                    </div>
+                    <div className="project-list-stage"><strong>{stage}</strong><small>{description}</small></div>
+                    <time>{new Date(project.updated_at).toLocaleDateString()}</time>
+                    <span className="project-list-arrow" aria-hidden="true">→</span>
+                  </Link>
+                  {ownerWorkspaceIds.has(project.workspace_id) && (
+                    <div className="project-list-actions">
+                      <AnalysisDeleteControl projectId={project.id} projectName={project.name} variant="icon" />
+                    </div>
+                  )}
+                </div>
               )
             })}
           </section>
