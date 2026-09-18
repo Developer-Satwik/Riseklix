@@ -95,10 +95,10 @@ const handler = {
 
     const task = (async () => {
       const providerPlans = [
-        { provider: 'openai', functionName: 'openai-observation-runner', maxRuns: 4 },
-        { provider: 'google', functionName: 'provider-observation-runner', maxRuns: 3 },
-        { provider: 'anthropic', functionName: 'provider-observation-runner', maxRuns: 3 },
-        { provider: 'perplexity', functionName: 'provider-observation-runner', maxRuns: 3 },
+        { provider: 'openai', functionName: 'openai-observation-runner', maxRuns: 2 },
+        { provider: 'google', functionName: 'provider-observation-runner', maxRuns: 2 },
+        { provider: 'anthropic', functionName: 'provider-observation-runner', maxRuns: 2 },
+        { provider: 'perplexity', functionName: 'provider-observation-runner', maxRuns: 2 },
       ] as const
 
       const surfaceRows = await ctx.supabase
