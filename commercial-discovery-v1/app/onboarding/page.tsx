@@ -2,10 +2,12 @@ import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { completeOnboarding } from './actions'
+import { getRequestDefaultMarket } from '@/lib/request-market'
 
 export default async function OnboardingPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const params = await searchParams
   const errorMessage = typeof params.error === 'string' ? params.error : null
+  const inferredMarket = getRequestDefaultMarket()
   const supabase = await createClient()
   const { data: claims, error } = await supabase.auth.getClaims()
   const userId = claims?.claims?.sub
@@ -46,6 +48,20 @@ export default async function OnboardingPage({ searchParams }: { searchParams: P
           <label>
             Organization name
             <input name="organization_name" type="text" defaultValue={workspaces?.[0]?.name === 'My Workspace' ? '' : workspaces?.[0]?.name || ''} autoComplete="organization" minLength={2} maxLength={120} placeholder="Acme, Riseklix Media, Your Agency…" required />
+          </label>
+
+          <label>
+            Default research market
+            <select name="default_market" defaultValue={inferredMarket} required>
+              <option>Global</option>
+              <option>India</option>
+              <option>United States</option>
+              <option>United Kingdom</option>
+              <option>UAE</option>
+              <option>Singapore</option>
+              <option>Australia</option>
+            </select>
+            <small className="onboarding-field-note">Prefilled from your approximate country at signup. Change it if most of your research is for another market.</small>
           </label>
 
           <div className="onboarding-note">
