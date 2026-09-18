@@ -22,7 +22,7 @@ export default async function ProjectsPage({
   const supabase = await createClient()
   const { data: projects, error } = await supabase
     .from('projects')
-    .select('id,workspace_id,name,domain,market,status,updated_at')
+    .select('id,workspace_id,name,domain,market,status,analysis_mode,updated_at')
     .order('updated_at', { ascending: false })
 
   const active = projects?.filter((project) => !['complete', 'archived'].includes(project.status)).length ?? 0
@@ -68,9 +68,16 @@ export default async function ProjectsPage({
             <div className="project-list-head"><span>Company</span><span>Current stage</span><span>Updated</span><span /></div>
             {projects.map((project) => {
               const [stage, description] = stageCopy(project.status)
+              const projectHref = project.analysis_mode === 'autopilot'
+                ? project.status === 'complete'
+                  ? '/projects/' + project.id + '/report'
+                  : project.status === 'running'
+                    ? '/projects/' + project.id + '/processing'
+                    : '/projects/' + project.id + '/overview'
+                : '/projects/' + project.id + '/overview'
               return (
                 <div key={project.id} className="project-list-row">
-                  <Link href={'/projects/' + project.id + '/overview'} className="project-list-row-main">
+                  <Link href={projectHref} className="project-list-row-main">
                     <div className="project-list-company">
                       <div><strong>{project.name}</strong><small>{project.domain} · {project.market}</small></div>
                     </div>
