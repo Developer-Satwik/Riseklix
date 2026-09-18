@@ -13,8 +13,8 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
         <div className="eyebrow">COMMERCIAL DISCOVERY WORKSPACE</div>
         <h1>Sign in to your research workspace.</h1>
         <p>One account can hold multiple company projects while keeping each benchmark and evidence chain separate.</p>
-        {error && <div className="form-alert error">{error}</div>}
-        {message && <div className="form-alert success">{message}</div>}
+        {error && <div className="form-alert error" role="alert">{error}</div>}
+        {message && <div className="form-alert success" role="status" aria-live="polite">{message}</div>}
         <form className="auth-form">
           <label>Email<input name="email" type="email" autoComplete="email" required /></label>
           <label>Password<input name="password" type="password" autoComplete="current-password" minLength={8} required /></label>
