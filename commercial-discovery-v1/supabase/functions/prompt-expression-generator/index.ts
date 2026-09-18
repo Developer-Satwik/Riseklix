@@ -17,6 +17,30 @@ type Expression = {
   rationale: string
 }
 
+async function continueAutopilot(req: Request, projectId: string) {
+  const authHeader = req.headers.get('Authorization')
+  const supabaseUrl = Deno.env.get('SUPABASE_URL')
+  const anonKey = Deno.env.get('SUPABASE_ANON_KEY')
+  if (!authHeader || !supabaseUrl) return
+
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    Authorization: authHeader,
+  }
+  if (anonKey) headers.apikey = anonKey
+
+  try {
+    await fetch(supabaseUrl + '/functions/v1/auto-analysis-runner', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ project_id: projectId }),
+      signal: AbortSignal.timeout(120_000),
+    })
+  } catch {
+    // The durable project state remains available for a later retry.
+  }
+}
+
 function json(data: unknown, status = 200) {
   return Response.json(data, { status, headers: { 'Cache-Control': 'no-store' } })
 }
@@ -275,6 +299,7 @@ ${JSON.stringify(intent)}`,
 
       await ctx.supabase.from('audit_events').insert({ workspace_id: project.workspace_id, project_id: project.id, actor_user_id: userId, event_type: 'prompt_expressions_generated', entity_type: 'buyer_intent', entity_id: intent.id, payload: { research_job_id: job.id, model, generated: inserted?.length ?? 0, languages } })
 
+      await continueAutopilot(req, project.id)
         return
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Unknown prompt-generation error'
