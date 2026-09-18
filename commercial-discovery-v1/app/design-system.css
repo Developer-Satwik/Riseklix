@@ -313,9 +313,16 @@ button:disabled{cursor:not-allowed}
 }
 .spotlight-action p{font-size:13px;line-height:1.55;color:#625a50;max-width:700px;margin:0}
 .spotlight-cta{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  flex:none;
+  min-height:42px;
+  box-sizing:border-box;
   background:var(--ink);
   color:var(--cream);
   gap:14px;
+  line-height:1;
   white-space:nowrap;
 }
 .spotlight-cta:hover{background:#302b25;color:#fffaf2}
