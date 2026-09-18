@@ -343,7 +343,8 @@ const handler = {
 
     const userId = String(ctx.userClaims?.id ?? ctx.jwtClaims?.sub ?? '') || null
     const day = new Date().toISOString().slice(0, 10)
-    const idempotencyKey = `company-first-party:${project.id}:${day}`
+    const baseIdempotencyKey = `company-first-party:${project.id}:${day}`
+    const idempotencyKey = body.regenerate ? `${baseIdempotencyKey}:${crypto.randomUUID()}` : baseIdempotencyKey
 
     const existing = await ctx.supabase
       .from('research_jobs')
@@ -353,6 +354,12 @@ const handler = {
       .maybeSingle()
 
     if (existing.data && ['queued', 'running', 'succeeded'].includes(existing.data.status)) return json({ job: existing.data, reused: true })
+
+    if (existing.data?.status === 'failed') {
+      await ctx.supabase.from('research_jobs').update({
+        idempotency_key: baseIdempotencyKey + ':failed:' + existing.data.id,
+      }).eq('id', existing.data.id)
+    }
 
     const { data: job, error: jobError } = await ctx.supabase
       .from('research_jobs')
@@ -376,7 +383,90 @@ const handler = {
     try {
       const website = normalizeWebsite(project.domain)
       const siteHost = normalizedHost(website.hostname)
-      const homepage = await fetchHtml(website, siteHost)
+
+      let homepage: Awaited<ReturnType<typeof fetchHtml>>
+      try {
+        homepage = await fetchHtml(website, siteHost)
+      } catch (error) {
+        if (error instanceof HttpStatusError && [401, 403, 429].includes(error.status)) {
+          await ctx.supabase.from('research_jobs').update({
+            progress: 18,
+            stage: 'using_indexed_first_party_fallback',
+          }).eq('id', job.id)
+
+          const fallback = await indexedFirstPartyFallback(project.domain, siteHost, error.status)
+          const captured: CapturedPage[] = []
+
+          for (const page of fallback.pages) {
+            const sample = page.text_sample.trim().slice(0, 30_000)
+            if (sample.length < 40) continue
+            const hash = await sha256(sample)
+
+            const { error: sourceError } = await ctx.supabase.from('research_sources').upsert({
+              workspace_id: project.workspace_id,
+              project_id: project.id,
+              url: page.url,
+              title: page.title || project.name,
+              source_type: 'search_result',
+              captured_at: new Date().toISOString(),
+              snapshot_hash: hash,
+              metadata: {
+                description: page.description || null,
+                text_sample: sample,
+                source_role: page.source_role,
+                acquisition_method: 'indexed_first_party_fallback',
+                direct_fetch_status: error.status,
+                fallback_model: fallback.model,
+                evidence_limitations: fallback.limitations,
+              },
+            }, { onConflict: 'project_id,url' })
+
+            if (sourceError) throw sourceError
+            captured.push({
+              url: page.url,
+              title: page.title || project.name,
+              description: page.description || null,
+              snapshot_hash: hash,
+              source_role: page.source_role,
+            })
+          }
+
+          if (!captured.length) {
+            throw new Error('The website blocks direct automated research (HTTP ' + error.status + ') and no usable indexed first-party evidence could be recovered.')
+          }
+
+          await Promise.all([
+            ctx.supabase.from('projects').update({ status: 'profile_review' }).eq('id', project.id),
+            ctx.supabase.from('research_jobs').update({
+              status: 'succeeded',
+              progress: 100,
+              stage: 'indexed_first_party_fallback_complete',
+              output: {
+                pages_captured: captured.length,
+                pages_failed: 0,
+                captured,
+                failures: [],
+                acquisition_method: 'indexed_first_party_fallback',
+                direct_fetch_status: error.status,
+                limitations: fallback.limitations,
+                fallback_model: fallback.model,
+              },
+              completed_at: new Date().toISOString(),
+            }).eq('id', job.id),
+          ])
+
+          return json({
+            job: { ...job, status: 'succeeded', progress: 100, stage: 'indexed_first_party_fallback_complete' },
+            pages: captured,
+            failures: [],
+            fallback: true,
+            direct_fetch_status: error.status,
+            limitations: fallback.limitations,
+            next: 'Direct crawling was blocked, so Riseklix recovered indexed first-party evidence. Company Intelligence should preserve that acquisition limitation.',
+          })
+        }
+        throw error
+      }
 
       await ctx.supabase.from('research_jobs').update({ progress: 20, stage: 'discovering_first_party_pages' }).eq('id', job.id)
       const [sitemap, homepageLinks] = await Promise.all([
