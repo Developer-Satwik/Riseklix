@@ -212,7 +212,7 @@ export async function approveCompanyProfile(formData: FormData) {
   ])
 
   if (project?.analysis_mode === 'autopilot') {
-    const { data: autoData, error: autoError } = await supabase.functions.invoke('auto-analysis-runner', {
+    const { error: autoError } = await supabase.functions.invoke('auto-analysis-runner', {
       body: { project_id: parsed.data.project_id },
     })
 
