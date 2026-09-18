@@ -1,5 +1,6 @@
 import { withSupabase } from 'npm:@supabase/server'
 import OpenAI from 'npm:openai'
+import { firecrawlSearch, type FirecrawlDocument } from '../_shared/firecrawl.ts'
 
 declare const EdgeRuntime: { waitUntil(promise: Promise<unknown>): void }
 
@@ -167,6 +168,30 @@ function collectSearchSources(response: unknown) {
   return sources
 }
 
+function marketCountry(market: string) {
+  const values: Record<string, string> = {
+    India: 'IN',
+    'United States': 'US',
+    'United Kingdom': 'GB',
+    UAE: 'AE',
+    Singapore: 'SG',
+    Australia: 'AU',
+  }
+  return values[market]
+}
+
+function uniqueFirecrawlDocs(groups: FirecrawlDocument[][]) {
+  const byUrl = new Map<string, FirecrawlDocument>()
+  for (const group of groups) {
+    for (const item of group) {
+      const key = normalizeUrl(item.url)
+      if (!key || byUrl.has(key)) continue
+      byUrl.set(key, item)
+    }
+  }
+  return [...byUrl.values()]
+}
+
 function effectiveStrength(domain: string, evidence: EvidenceItem[]) {
   const candidateDomain = normalizeDomain(domain)
   const official = evidence.some((item) => normalizeDomain(item.url) === candidateDomain)
@@ -328,14 +353,75 @@ const handler = {
         approved_buyer_intent: intent,
       }
 
+      const firecrawlKey = Deno.env.get('FIRECRAWL_API_KEY')
+      let firecrawlSources: FirecrawlDocument[] = []
+
+      if (firecrawlKey) {
+        const hardConstraintText = JSON.stringify(intent.constraints)
+        const capabilityText = JSON.stringify(intent.required_capabilities)
+        const queries = [
+          intent.title + ' ' + intent.job_to_be_done + ' ' + project.market,
+          intent.commercial_model + ' ' + capabilityText.slice(0, 500) + ' ' + hardConstraintText.slice(0, 500) + ' ' + project.market,
+        ]
+
+        const searched = await Promise.all(
+          queries.map((query) => firecrawlSearch(firecrawlKey, query, {
+            limit: 6,
+            location: marketCountry(project.market),
+            scrape: true,
+          }))
+        )
+
+        firecrawlSources = uniqueFirecrawlDocs(searched).slice(0, 12)
+      }
+
+      const retrievalPackets = firecrawlSources.map((source) => ({
+        url: source.url,
+        title: source.title,
+        description: source.description,
+        text_sample: source.markdown.slice(0, 7000),
+      }))
+
+      const instructions = `You are the intent-specific Competitor Discovery engine for Riseklix Commercial Discovery.
+
+Discover and classify companies for ONE approved Buyer Intent using only current retrieved evidence.
+
+The evaluated company's overall category is not enough. A competitor is relevant only to this specific buying situation.
+
+LADDER
+L0 DIRECT: satisfies every hard constraint and the important constraints with evidence; same buying job and commercial model.
+L1 NEAR-DIRECT: satisfies every hard constraint and the core buying job; only contextual constraints may be relaxed.
+L2 CONTROLLED RELAXATION: every hard constraint remains satisfied; one or more important constraints may be relaxed. State each relaxation explicitly.
+L3 BROADENED FIT: every hard constraint remains satisfied; broader geography, operating model or delivery approach may be considered only where that item is not itself a hard constraint.
+L4 SUBSTITUTE: solves the buyer's underlying job through a meaningfully different category or approach while still respecting the hard constraints.
+L5 BENCHMARK: useful adjacent benchmark or category leader, clearly not a direct competitor for this exact buying situation.
+
+RULES
+1. NEVER relax a hard constraint. If a company fails one, exclude it entirely.
+2. Do not fabricate capabilities, locations, commercial models, certifications, fleet, installation, rental, service coverage or other operating facts.
+3. Every included company needs at least one exact evidence URL from the supplied retrieval packets or search sources. Prefer first-party evidence and independent corroboration when available.
+4. Exclude the evaluated company itself and aliases of its own domain.
+5. Do not intentionally diversify brands. Include the companies that actually fit the intent.
+6. A manufacturer that cannot satisfy a rental intent is not a direct competitor merely because it makes the same equipment. A local rental operator that cannot meet a hard multi-city requirement should be excluded if multi-city is hard.
+7. relationship describes commercial substitutability; discovery_layer describes how far the engine had to broaden.
+8. Return a small, defensible set. It is acceptable to return only a few companies in a narrow market.
+9. Every rationale must explain fit relative to the buyer intent, not generic company prestige.`
+
       const response = await openai.responses.create({
         model,
         reasoning: { effort: 'medium' },
-        tools: [{ type: 'web_search_preview', search_context_size: 'medium' }],
-        tool_choice: 'required',
-        include: ['web_search_call.action.sources'],
-        instructions: `You are the intent-specific Competitor Discovery engine for Riseklix Commercial Discovery.\n\nYou must use web search. Do not rely on memorized company lists. Discover companies for ONE approved Buyer Intent, then classify them by a controlled relaxation ladder.\n\nThe evaluated company's overall category is not enough. A competitor is relevant only to this specific buying situation.\n\nLADDER\nL0 DIRECT: satisfies every hard constraint and the important constraints with evidence; same buying job and commercial model.\nL1 NEAR-DIRECT: satisfies every hard constraint and the core buying job; only contextual constraints may be relaxed.\nL2 CONTROLLED RELAXATION: every hard constraint remains satisfied; one or more important constraints may be relaxed. State each relaxation explicitly.\nL3 BROADENED FIT: every hard constraint remains satisfied; broader geography, operating model or delivery approach may be considered only where that item is not itself a hard constraint.\nL4 SUBSTITUTE: solves the buyer's underlying job through a meaningfully different category or approach while still respecting the hard constraints.\nL5 BENCHMARK: useful adjacent benchmark or category leader, clearly not a direct competitor for this exact buying situation.\n\nRULES\n1. NEVER relax a hard constraint. If a company fails one, exclude it entirely.\n2. Search current public evidence for every company. Do not fabricate capabilities, locations, commercial models, certifications, fleet, installation, rental, service coverage or other operating facts.\n3. Copy evidence URLs exactly from pages surfaced through web search. Each included company needs at least one source. Prefer first-party evidence and add independent evidence when useful.\n4. Exclude the evaluated company itself and aliases of its own domain.\n5. Do not intentionally diversify brands. Include the companies that actually fit the intent.\n6. A manufacturer that cannot satisfy a rental intent is not a direct competitor merely because it makes the same equipment. A local rental operator that cannot meet a hard multi-city requirement should be excluded if multi-city is hard.\n7. relationship describes commercial substitutability; discovery_layer describes how far the engine had to broaden.\n8. Return a small, defensible set. It is acceptable to return only a few companies in a narrow market.\n9. Every rationale must explain fit relative to the buyer intent, not generic company prestige.`,
-        input: `Research the current competitor universe for this approved Buyer Intent:\n\n${JSON.stringify(input)}`,
+        ...(firecrawlKey
+          ? {}
+          : {
+              tools: [{ type: 'web_search_preview' as const, search_context_size: 'medium' as const }],
+              tool_choice: 'required' as const,
+              include: ['web_search_call.action.sources'],
+            }),
+        instructions: firecrawlKey
+          ? instructions + '\n10. Firecrawl already performed web retrieval. Do not browse again; classify only from the supplied packets.'
+          : instructions + '\n10. FIRECRAWL_API_KEY is not configured, so use web search as the temporary retrieval fallback.',
+        input: 'Target + approved intent:\n' + JSON.stringify(input)
+          + '\n\nRetrieved web evidence:\n' + JSON.stringify(retrievalPackets),
         text: {
           format: {
             type: 'json_schema',
@@ -350,7 +436,9 @@ const handler = {
       if (!raw) throw new Error('Competitor provider returned no structured output')
 
       const parsed = JSON.parse(raw) as { summary: string; candidates: Candidate[] }
-      const searchSources = collectSearchSources(response)
+      const searchSources = firecrawlSources.length
+        ? firecrawlSources.map((source) => ({ url: source.url, title: source.title }))
+        : collectSearchSources(response)
       const sourceMap = new Map<string, { url: string; title: string }>()
       for (const source of searchSources) {
         const key = normalizeUrl(source.url)
@@ -394,6 +482,9 @@ const handler = {
           intent_key: intent.intent_key,
           candidate_domain: normalizeDomain(candidate.domain),
           claim: item.claim,
+          acquisition_method: firecrawlSources.length ? 'firecrawl_search' : 'openai_web_search_fallback',
+          retrieval_provider: firecrawlSources.length ? 'firecrawl' : 'openai',
+          text_sample: firecrawlSources.find((source) => normalizeUrl(source.url) === normalizeUrl(item.url))?.markdown.slice(0, 12_000) || '',
           discovered_by_model: model,
         },
       })))
@@ -468,7 +559,8 @@ const handler = {
           summary: parsed.summary,
           generated: inserted?.length ?? 0,
           source_count: storedSources?.length ?? 0,
-          source_validation: 'web_search_source_match',
+          source_validation: firecrawlSources.length ? 'firecrawl_retrieval_match' : 'openai_web_search_source_match',
+          retrieval_provider: firecrawlSources.length ? 'firecrawl' : 'openai_web_search_fallback',
         },
         completed_at: new Date().toISOString(),
       }).eq('id', job.id)
