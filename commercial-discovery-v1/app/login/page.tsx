@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { TurnstileWidget } from '@/components/turnstile-widget'
-import { login, signup, signInWithGoogle, signInWithMicrosoft } from './actions'
+import { login, signup } from './actions'
+import { OAuthButtons } from '@/components/oauth-buttons'
 
 export default async function LoginPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const params = await searchParams
@@ -18,10 +19,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
         {error && <div className="form-alert error" role="alert">{error}</div>}
         {message && <div className="form-alert success" role="status" aria-live="polite">{message}</div>}
 
-        <div className="oauth-stack">
-          <form action={signInWithGoogle}><button type="submit" className="oauth-button"><span>G</span>Continue with Google</button></form>
-          <form action={signInWithMicrosoft}><button type="submit" className="oauth-button"><span className="microsoft-mark" aria-hidden="true" />Continue with Microsoft</button></form>
-        </div>
+        <OAuthButtons />
 
         <div className="auth-divider"><span>or continue with email</span></div>
 
