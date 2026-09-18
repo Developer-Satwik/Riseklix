@@ -62,14 +62,22 @@ export async function runCompanyResearch(formData: FormData) {
   if (!parsed.success) redirect('/projects?error=Invalid+project')
 
   const { supabase } = await authenticatedClient()
+  const regenerate = formData.get('regenerate') === 'true'
   const { data, error } = await supabase.functions.invoke('company-research', {
-    body: { project_id: parsed.data.project_id },
+    body: { project_id: parsed.data.project_id, regenerate },
   })
 
-  if (error) redirect(`/projects/${parsed.data.project_id}/company-profile?error=${encodeURIComponent(error.message)}`)
+  if (error) {
+    const detail = await edgeFunctionErrorMessage(error)
+    redirect(`/projects/${parsed.data.project_id}/company-profile?error=${encodeURIComponent(detail)}`)
+  }
   if (data?.error) redirect(`/projects/${parsed.data.project_id}/company-profile?error=${encodeURIComponent(String(data.error))}`)
 
-  const captureMessage = data?.reused ? 'Existing first-party evidence reused.' : 'First-party evidence captured.'
+  const captureMessage = data?.fallback
+    ? 'Direct crawl was blocked, so Riseklix recovered indexed first-party evidence.'
+    : data?.reused
+      ? 'Existing company evidence reused.'
+      : 'Company evidence captured.'
 
   const interpretation = await supabase.functions.invoke('company-intelligence-interpreter', {
     body: { project_id: parsed.data.project_id },
