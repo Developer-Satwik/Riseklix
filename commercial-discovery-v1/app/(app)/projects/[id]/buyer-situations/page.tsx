@@ -15,16 +15,34 @@ function evidenceItems(value: unknown) {
   return value.map(record).filter((item) => typeof item.url === 'string')
 }
 
+function constraintItems(value: unknown) {
+  if (!Array.isArray(value)) return []
+  return value.map((item) => {
+    if (typeof item === 'string') return { text: item, importance: null as string | null }
+    const row = record(item)
+    return {
+      text: typeof row.text === 'string' ? row.text : JSON.stringify(item),
+      importance: typeof row.importance === 'string' ? row.importance : null,
+    }
+  }).filter((item) => item.text.trim().length > 0)
+}
+
+function textItems(value: unknown) {
+  if (!Array.isArray(value)) return []
+  return value.map((item) => typeof item === 'string' ? item : String(record(item).text ?? '')).filter(Boolean)
+}
+
 export default async function BuyerSituationsPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const { id } = await params
   const query = await searchParams
   const supabase = await createClient()
 
-  const [{ data: intents }, { data: profile }, { data: latestJob }, { data: competitorJobs }, { data: competitors }, { data: prompts }] = await Promise.all([
+  const [{ data: intents }, { data: profile }, { data: latestJob }, { data: competitorJobs }, { data: promptJobs }, { data: competitors }, { data: prompts }] = await Promise.all([
     supabase.from('buyer_intents').select('id,intent_key,title,buyer,job_to_be_done,provenance,provenance_reason,priority,status,commercial_model,geography,constraints,required_capabilities,purchase_stage,language_policy,source_refs').eq('project_id', id).order('created_at'),
     supabase.from('company_profile_versions').select('status,company_name').eq('project_id', id).eq('is_current', true).single(),
     supabase.from('research_jobs').select('id,status,stage,progress,output,error,created_at').eq('project_id', id).eq('job_type', 'intent_generation').order('created_at', { ascending: false }).limit(1).maybeSingle(),
     supabase.from('research_jobs').select('id,status,stage,progress,error,input,created_at').eq('project_id', id).eq('job_type', 'competitor_discovery').order('created_at', { ascending: false }).limit(50),
+    supabase.from('research_jobs').select('id,status,stage,progress,error,input,created_at').eq('project_id', id).eq('job_type', 'prompt_generation').order('created_at', { ascending: false }).limit(50),
     supabase.from('competitor_candidates').select('id,buyer_intent_id,company_name,domain,relationship,discovery_layer,status,matched_constraints,relaxed_constraints,evidence,evidence_strength,rationale,is_current').eq('project_id', id).eq('is_current', true).order('discovery_layer').order('company_name'),
     supabase.from('prompt_expressions').select('id,buyer_intent_id,language,mode,variant_no,prompt_text,status,is_frozen,version').eq('project_id', id).order('language').order('mode').order('variant_no'),
   ])
@@ -40,12 +58,12 @@ export default async function BuyerSituationsPage({ params, searchParams }: { pa
 
   return (
     <div className="project-page">
-      <ResearchJobWatcher active={latestJob?.status === 'running' || (competitorJobs ?? []).some((job) => job.status === 'running')} />
+      <ResearchJobWatcher active={latestJob?.status === 'running' || (competitorJobs ?? []).some((job) => job.status === 'running') || (promptJobs ?? []).some((job) => job.status === 'running')} />
       <section className="page-header compact">
         <div>
           <div className="eyebrow">WHERE SHOULD WE BE CONSIDERED?</div>
           <h1>Buyer Situations</h1>
-          <p>Riseklix models the commercial situation first, discovers a defensible competitor universe second, and only then creates controlled prompt expressions for observation.</p>
+          <p>Riseklix first defines the buying situation in plain business terms. Once you approve it, Riseklix researches the competitor set and generates the exact natural-language questions that will be asked across AI models.</p>
         </div>
       </section>
 
@@ -73,7 +91,7 @@ export default async function BuyerSituationsPage({ params, searchParams }: { pa
           <div><span>Awaiting review</span><strong>{candidateCount}</strong></div>
           <div><span>Approved</span><strong>{approvedCount}</strong></div>
           <div><span>Competitor sets ready</span><strong>{new Set((competitors ?? []).map((item) => item.buyer_intent_id)).size}</strong></div>
-          <div><span>Question sets started</span><strong>{new Set((prompts ?? []).map((item) => item.buyer_intent_id)).size}</strong></div>
+          <div><span>Buyer question sets</span><strong>{new Set((prompts ?? []).map((item) => item.buyer_intent_id)).size}</strong></div>
         </section>
       )}
 
@@ -90,12 +108,22 @@ export default async function BuyerSituationsPage({ params, searchParams }: { pa
             const competitorJobError = intentCompetitorJob?.error && typeof intentCompetitorJob.error === 'object' && !Array.isArray(intentCompetitorJob.error)
               ? String((intentCompetitorJob.error as Record<string, unknown>).message || '')
               : ''
+            const intentPromptJob = (promptJobs ?? []).find((job) => {
+              const input = record(job.input)
+              return input.intent_id === intent.id
+            })
+            const promptJobError = intentPromptJob?.error && typeof intentPromptJob.error === 'object' && !Array.isArray(intentPromptJob.error)
+              ? String((intentPromptJob.error as Record<string, unknown>).message || '')
+              : ''
+            const constraints = constraintItems(intent.constraints)
+            const capabilities = textItems(intent.required_capabilities)
 
             return (
               <article key={intent.id} className={intent.status === 'rejected' ? 'intent-rejected' : ''}>
                 <div className="intent-meta"><span>{intent.intent_key}</span><span>{intent.provenance}</span><span>{intent.priority}</span><span>{intent.status}</span></div>
+                <div className="intent-not-prompt">COMMERCIAL SITUATION · NOT SENT TO AI</div>
                 <h2>{intent.title}</h2>
-                <p>{intent.job_to_be_done}</p>
+                <p className="intent-job"><span>What the buyer is trying to do</span>{intent.job_to_be_done}</p>
                 <div className="intent-facts">
                   <div><small>Buyer</small><strong>{intent.buyer || 'Not specified'}</strong></div>
                   <div><small>Commercial model</small><strong>{intent.commercial_model || 'Not specified'}</strong></div>
@@ -104,11 +132,26 @@ export default async function BuyerSituationsPage({ params, searchParams }: { pa
                 </div>
 
                 <details className="intent-details">
-                  <summary>Why Riseklix thinks this situation belongs here</summary>
-                  <p>{intent.provenance_reason || 'No provenance rationale recorded.'}</p>
+                  <summary>Research logic and decision constraints</summary>
+                  <div className="intent-provenance-note">
+                    <small>Why Riseklix included this</small>
+                    <p>{intent.provenance_reason || 'No provenance rationale recorded.'}</p>
+                  </div>
                   <div className="intent-detail-columns">
-                    <div><small>Constraints</small><pre>{JSON.stringify(intent.constraints ?? [], null, 2)}</pre></div>
-                    <div><small>Required capabilities</small><pre>{JSON.stringify(intent.required_capabilities ?? [], null, 2)}</pre></div>
+                    <div>
+                      <small>Decision constraints</small>
+                      <ul className="plain-research-list">
+                        {constraints.map((item, index) => <li key={index}><span>{item.text}</span>{item.importance && <em>{item.importance}</em>}</li>)}
+                        {!constraints.length && <li><span>No explicit constraints recorded.</span></li>}
+                      </ul>
+                    </div>
+                    <div>
+                      <small>Capabilities a provider needs</small>
+                      <ul className="plain-research-list">
+                        {capabilities.map((item, index) => <li key={index}><span>{item}</span></li>)}
+                        {!capabilities.length && <li><span>No explicit capabilities recorded.</span></li>}
+                      </ul>
+                    </div>
                   </div>
                 </details>
 
@@ -126,7 +169,7 @@ export default async function BuyerSituationsPage({ params, searchParams }: { pa
                         <span>Competitive set</span><strong>{intentCompetitors.length ? intentCompetitors.length + ' candidates' : 'Not generated'}</strong>
                       </div>
                       <div>
-                        <span>Question expressions</span><strong>{intentPrompts.length ? approvedPrompts + '/' + intentPrompts.length + ' approved' : 'Not generated'}</strong>
+                        <span>Exact buyer questions</span><strong>{intentPrompts.length ? approvedPrompts + '/' + intentPrompts.length + ' approved' : 'Not generated'}</strong>
                       </div>
                     </div>
 
@@ -195,22 +238,30 @@ export default async function BuyerSituationsPage({ params, searchParams }: { pa
 
                     <details className="workflow-disclosure">
                       <summary>
-                        <span><strong>Question expressions</strong><small>How this intent will be tested without changing its commercial meaning.</small></span>
+                        <span><strong>Exact buyer questions</strong><small>The actual sentences Riseklix will send to each enabled AI model.</small></span>
                         <span>{intentPrompts.length ? approvedPrompts + '/' + intentPrompts.length : '—'}</span>
                       </summary>
                       <section className="prompt-section">
                       <div className="prompt-heading">
                         <div>
-                          <div className="eyebrow">CONTROLLED QUESTION EXPRESSIONS</div>
-                          <h3>{intentPrompts.length ? `${approvedPrompts}/${intentPrompts.length} approved` : 'Generate wording only after the competitor universe is known.'}</h3>
-                          <p>Unaided questions never contain the target brand. Aided controls test whether AI understands the same company inside the same buying situation.</p>
+                          <div className="eyebrow">EXACT AI QUESTIONS</div>
+                          <h3>{intentPrompts.length ? `${approvedPrompts}/${intentPrompts.length} approved` : 'Generate the exact buyer wording after the competitor universe is known.'}</h3>
+                          <p><strong>Buyer question</strong> asks for options without naming the client. <strong>Brand check</strong> asks about the same buying decision with the client named. Approved questions are frozen and reused across every enabled model surface so comparisons stay fair.</p>
+                          {intentPromptJob?.status === 'running' && (
+                            <div className="competitor-job-state" role="status" aria-live="polite">
+                              <span>Generating</span>
+                              <strong>{intentPromptJob.stage?.replaceAll('_', ' ') || 'buyer questions'}</strong>
+                              <small>{intentPromptJob.progress}%</small>
+                            </div>
+                          )}
+                          {intentPromptJob?.status === 'failed' && promptJobError && <div className="inline-job-error" role="alert">{promptJobError}</div>}
                         </div>
                         {!!intentCompetitors.length && !intentPrompts.length && (
                           <form action={generatePromptExpressions}>
                             <input type="hidden" name="project_id" value={id} />
                             <input type="hidden" name="intent_id" value={intent.id} />
                             <input type="hidden" name="regenerate" value="false" />
-                            <PendingButton pendingLabel="Generating questions…">Generate question expressions</PendingButton>
+                            <PendingButton pendingLabel="Generating buyer questions…">Generate buyer questions</PendingButton>
                           </form>
                         )}
                       </div>
@@ -219,8 +270,10 @@ export default async function BuyerSituationsPage({ params, searchParams }: { pa
                         <div className="prompt-list">
                           {intentPrompts.map((prompt) => (
                             <div className={`prompt-card prompt-${prompt.status}`} key={prompt.id}>
-                              <div className="prompt-card-meta"><span>{prompt.language}</span><span>{prompt.mode}</span><span>v{prompt.version}.{prompt.variant_no}</span><span>{prompt.status}</span>{prompt.is_frozen && <span>frozen</span>}</div>
+                              <div className="prompt-card-meta"><span>{prompt.language}</span><span>{prompt.mode === 'unaided' ? 'buyer question' : 'brand check'}</span><span>v{prompt.version}.{prompt.variant_no}</span><span>{prompt.status}</span>{prompt.is_frozen && <span>frozen</span>}</div>
+                              <small className="prompt-human-label">{prompt.mode === 'unaided' ? 'WHAT A BUYER COULD ACTUALLY ASK' : 'SAME DECISION · COMPANY NAMED'}</small>
                               <p>{prompt.prompt_text}</p>
+                              <div className="prompt-surface-note">Runs independently across every enabled AI surface.</div>
                               {prompt.status === 'candidate' && !prompt.is_frozen && (
                                 <div className="prompt-actions">
                                   <form action={approvePromptExpression}><input type="hidden" name="project_id" value={id} /><input type="hidden" name="intent_id" value={intent.id} /><input type="hidden" name="prompt_id" value={prompt.id} /><PendingButton pendingLabel="Approving…">Approve</PendingButton></form>
