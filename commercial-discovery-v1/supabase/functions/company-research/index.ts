@@ -207,7 +207,7 @@ function sourceRole(url: URL) {
   return 'supporting_page'
 }
 
-export default {
+const handler = {
   fetch: withSupabase({ auth: 'user' }, async (req, ctx) => {
     if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405)
 
@@ -353,3 +353,5 @@ export default {
     }
   }),
 }
+
+export default handler
