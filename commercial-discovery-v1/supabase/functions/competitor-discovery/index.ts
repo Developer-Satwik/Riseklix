@@ -1,6 +1,8 @@
 import { withSupabase } from 'npm:@supabase/server'
 import OpenAI from 'npm:openai'
 
+declare const EdgeRuntime: { waitUntil(promise: Promise<unknown>): void }
+
 type RequestBody = {
   project_id?: string
   intent_id?: string
@@ -33,7 +35,7 @@ const RESPONSE_SCHEMA = {
     summary: { type: 'string' },
     candidates: {
       type: 'array',
-      maxItems: 16,
+      maxItems: 12,
       items: {
         type: 'object',
         additionalProperties: false,
@@ -213,13 +215,37 @@ const handler = {
     if (!body.regenerate) {
       const existing = await ctx.supabase
         .from('research_jobs')
-        .select('id,status,progress,stage,output')
+        .select('id,status,progress,stage,output,error,created_at')
         .eq('project_id', project.id)
         .eq('idempotency_key', idempotencyKey)
         .maybeSingle()
 
       if (existing.data?.status === 'succeeded') {
         return json({ job: existing.data, reused: true, generated: record(existing.data.output).generated ?? 0 })
+      }
+
+      if (existing.data?.status === 'running') {
+        const createdAt = new Date(existing.data.created_at).getTime()
+        const ageMs = Number.isFinite(createdAt) ? Date.now() - createdAt : 0
+        if (ageMs < 120_000) {
+          return json({
+            job: existing.data,
+            pending: true,
+            message: 'Competitor research is already running for this Buyer Situation.',
+          }, 202)
+        }
+      }
+
+      if (existing.data) {
+        await ctx.supabase.from('research_jobs').update({
+          status: existing.data.status === 'running' ? 'failed' : existing.data.status,
+          stage: existing.data.status === 'running' ? 'competitor_discovery_interrupted' : existing.data.stage,
+          error: existing.data.status === 'running'
+            ? { message: 'Previous synchronous competitor research did not finish before the request window closed.' }
+            : existing.data.error,
+          completed_at: existing.data.status === 'running' ? new Date().toISOString() : null,
+          idempotency_key: idempotencyKey + ':previous:' + existing.data.id,
+        }).eq('id', existing.data.id)
       }
     }
 
@@ -243,8 +269,9 @@ const handler = {
 
     if (jobError || !job) return json({ error: jobError?.message ?? 'Could not start competitor discovery' }, 400)
 
-    try {
-      await ctx.supabase.from('research_jobs').update({ progress: 25, stage: 'researching_competitor_universe' }).eq('id', job.id)
+    const discoveryTask = (async () => {
+      try {
+        await ctx.supabase.from('research_jobs').update({ progress: 25, stage: 'researching_competitor_universe' }).eq('id', job.id)
 
       const openai = new OpenAI({ apiKey })
       const input = {
@@ -264,8 +291,8 @@ const handler = {
 
       const response = await openai.responses.create({
         model,
-        reasoning: { effort: 'high' },
-        tools: [{ type: 'web_search_preview', search_context_size: 'high' }],
+        reasoning: { effort: 'medium' },
+        tools: [{ type: 'web_search_preview', search_context_size: 'medium' }],
         tool_choice: 'required',
         include: ['web_search_call.action.sources'],
         instructions: `You are the intent-specific Competitor Discovery engine for Riseklix Commercial Discovery.\n\nYou must use web search. Do not rely on memorized company lists. Discover companies for ONE approved Buyer Intent, then classify them by a controlled relaxation ladder.\n\nThe evaluated company's overall category is not enough. A competitor is relevant only to this specific buying situation.\n\nLADDER\nL0 DIRECT: satisfies every hard constraint and the important constraints with evidence; same buying job and commercial model.\nL1 NEAR-DIRECT: satisfies every hard constraint and the core buying job; only contextual constraints may be relaxed.\nL2 CONTROLLED RELAXATION: every hard constraint remains satisfied; one or more important constraints may be relaxed. State each relaxation explicitly.\nL3 BROADENED FIT: every hard constraint remains satisfied; broader geography, operating model or delivery approach may be considered only where that item is not itself a hard constraint.\nL4 SUBSTITUTE: solves the buyer's underlying job through a meaningfully different category or approach while still respecting the hard constraints.\nL5 BENCHMARK: useful adjacent benchmark or category leader, clearly not a direct competitor for this exact buying situation.\n\nRULES\n1. NEVER relax a hard constraint. If a company fails one, exclude it entirely.\n2. Search current public evidence for every company. Do not fabricate capabilities, locations, commercial models, certifications, fleet, installation, rental, service coverage or other operating facts.\n3. Copy evidence URLs exactly from pages surfaced through web search. Each included company needs at least one source. Prefer first-party evidence and add independent evidence when useful.\n4. Exclude the evaluated company itself and aliases of its own domain.\n5. Do not intentionally diversify brands. Include the companies that actually fit the intent.\n6. A manufacturer that cannot satisfy a rental intent is not a direct competitor merely because it makes the same equipment. A local rental operator that cannot meet a hard multi-city requirement should be excluded if multi-city is hard.\n7. relationship describes commercial substitutability; discovery_layer describes how far the engine had to broaden.\n8. Return a small, defensible set. It is acceptable to return only a few companies in a narrow market.\n9. Every rationale must explain fit relative to the buyer intent, not generic company prestige.`,
@@ -417,22 +444,25 @@ const handler = {
         payload: { research_job_id: job.id, model, generated: inserted?.length ?? 0 },
       })
 
-      return json({
-        job: { id: job.id, status: 'succeeded', stage: 'competitors_ready' },
-        summary: parsed.summary,
-        generated: inserted?.length ?? 0,
-        competitors: inserted,
-      })
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown competitor-discovery error'
-      await ctx.supabase.from('research_jobs').update({
-        status: 'failed',
-        stage: 'competitor_discovery_failed',
-        error: { message, model },
-        completed_at: new Date().toISOString(),
-      }).eq('id', job.id)
-      return json({ error: message, job_id: job.id }, 422)
-    }
+        return
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Unknown competitor-discovery error'
+        await ctx.supabase.from('research_jobs').update({
+          status: 'failed',
+          stage: 'competitor_discovery_failed',
+          error: { message, model },
+          completed_at: new Date().toISOString(),
+        }).eq('id', job.id)
+      }
+    })()
+
+    EdgeRuntime.waitUntil(discoveryTask)
+
+    return json({
+      job: { id: job.id, status: 'running', stage: 'researching_competitor_universe' },
+      pending: true,
+      message: 'Competitor research started. Riseklix is validating the intent-specific universe in the background.',
+    }, 202)
   }),
 }
 
