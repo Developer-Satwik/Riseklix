@@ -16,6 +16,7 @@ export default async function ProjectOverview({ params }: { params: Promise<{ id
     { data: findings },
     { data: blueprints },
     { data: benchmark },
+    { data: promptExpressions },
   ] = await Promise.all([
     supabase.from('projects').select('name,domain,market,status').eq('id', id).single(),
     supabase.from('company_profile_versions').select('status,company_name').eq('project_id', id).eq('is_current', true).maybeSingle(),
@@ -23,6 +24,7 @@ export default async function ProjectOverview({ params }: { params: Promise<{ id
     supabase.from('findings').select('id,observed,severity,decision,evidence_strength,review_status,created_at').eq('project_id', id).order('created_at', { ascending: false }).limit(5),
     supabase.from('blueprints').select('id,status,finding_id').eq('project_id', id),
     supabase.from('benchmarks').select('id,status,benchmark_type,completed_at,created_at').eq('project_id', id).order('created_at', { ascending: false }).limit(1).maybeSingle(),
+    supabase.from('prompt_expressions').select('buyer_intent_id,mode,status').eq('project_id', id),
   ])
 
   const { data: surfaces } = benchmark
@@ -36,6 +38,14 @@ export default async function ProjectOverview({ params }: { params: Promise<{ id
   const monitoring = findings?.filter((finding) => finding.decision === 'monitor').length ?? 0
   const activeFixes = blueprints?.filter((item) => item.status !== 'verified').length ?? 0
   const verifiedFixes = blueprints?.filter((item) => item.status === 'verified').length ?? 0
+  const promptModes = new Map<string, Set<string>>()
+  for (const prompt of promptExpressions ?? []) {
+    if (prompt.status !== 'approved') continue
+    const modes = promptModes.get(prompt.buyer_intent_id) ?? new Set<string>()
+    modes.add(prompt.mode)
+    promptModes.set(prompt.buyer_intent_id, modes)
+  }
+  const testReadyIntentCount = Array.from(promptModes.values()).filter((modes) => modes.has('unaided') && modes.has('aided')).length
 
   let nextHref = `/projects/${id}/company-profile`
   let nextTitle = 'Confirm the company before we test anything.'
@@ -49,16 +59,21 @@ export default async function ProjectOverview({ params }: { params: Promise<{ id
       ? `${candidates} candidate situation${candidates === 1 ? '' : 's'} are waiting for a human decision. Nothing enters the benchmark until you approve it.`
       : 'The next step is to model commercially distinct decisions—not a pile of prompt variations.'
     nextCta = 'Open Buyer Situations'
+  } else if (approved > 0 && !benchmark && testReadyIntentCount > 0) {
+    nextHref = `/projects/${id}/test`
+    nextTitle = 'Your approved questions are ready to test.'
+    nextCopy = `${testReadyIntentCount} Buyer Situation${testReadyIntentCount === 1 ? '' : 's'} have both buyer questions and brand checks ready for a frozen multi-model baseline.`
+    nextCta = 'Run approved questions'
   } else if (approved > 0 && !benchmark) {
     nextHref = `/projects/${id}/buyer-situations`
-    nextTitle = 'Turn approved situations into a frozen benchmark.'
-    nextCopy = 'Generate and approve unaided questions plus aided controls, then freeze the first comparable panel.'
-    nextCta = 'Prepare benchmark questions'
+    nextTitle = 'Finish the question set before testing.'
+    nextCopy = 'Each tested Buyer Situation needs an approved buyer question plus an approved brand check.'
+    nextCta = 'Review buyer questions'
   } else if (benchmark && benchmark.status !== 'complete') {
-    nextHref = `/projects/${id}/recheck`
-    nextTitle = 'Finish the declared observation surfaces.'
-    nextCopy = 'The panel is frozen. Complete each configured surface without mixing capture errors, NR and not-yet-run observations.'
-    nextCta = 'Continue collection'
+    nextHref = `/projects/${id}/test`
+    nextTitle = 'Finish the declared AI surfaces.'
+    nextCopy = 'The baseline is frozen. Run the same approved questions across each enabled surface without mixing capture errors, NR and pending observations.'
+    nextCta = 'Continue tests'
   } else if (benchmark?.status === 'complete' && !findings?.length) {
     nextHref = `/projects/${id}/why`
     nextTitle = 'Interpret the benchmark without inventing certainty.'
