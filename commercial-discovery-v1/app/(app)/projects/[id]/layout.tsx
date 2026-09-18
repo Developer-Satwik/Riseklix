@@ -1,15 +1,7 @@
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
-
-const sections = [
-  ['Overview', 'overview'],
-  ['Buyer Situations', 'buyer-situations'],
-  ['Why', 'why'],
-  ['Fixes', 'fixes'],
-  ['Recheck', 'recheck'],
-  ['Company Profile', 'company-profile'],
-] as const
+import { ProjectNav } from '@/components/project-nav'
 
 export default async function ProjectLayout({ children, params }: { children: React.ReactNode; params: Promise<{ id: string }> }) {
   const { id } = await params
@@ -20,10 +12,17 @@ export default async function ProjectLayout({ children, params }: { children: Re
   return (
     <div className="project-shell">
       <header className="project-topbar">
-        <div><small>{project.market}</small><strong>{project.name}</strong><span>{project.domain}</span></div>
-        <div className="project-state">{project.status.replaceAll('_', ' ')}</div>
+        <div className="project-identity">
+          <Link href="/projects" className="project-back" aria-label="Back to projects">←</Link>
+          <div>
+            <small>{project.market}</small>
+            <strong>{project.name}</strong>
+            <span>{project.domain}</span>
+          </div>
+        </div>
+        <div className="project-state"><i aria-hidden="true" />{project.status.replaceAll('_', ' ')}</div>
       </header>
-      <nav className="project-nav">{sections.map(([label, path]) => <Link key={path} href={`/projects/${id}/${path}`}>{label}</Link>)}</nav>
+      <ProjectNav projectId={id} />
       {children}
     </div>
   )
