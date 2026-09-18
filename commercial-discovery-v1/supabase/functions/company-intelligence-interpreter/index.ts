@@ -113,7 +113,7 @@ const handler = {
     const packets = sources.map(sourcePacket).filter((source) => source.text_sample.length > 60)
     if (!packets.length) return json({ error: 'no_usable_company_evidence' }, 409)
 
-    const model = Deno.env.get('RISEKLIX_COMPANY_MODEL') || 'gpt-5.6-terra'
+    const model = Deno.env.get('RISEKLIX_COMPANY_MODEL') || 'gpt-5.6-sol'
     const sourceSignature = packets.map((source) => source.ref).sort().join(':')
     const idempotencyKey = body.regenerate
       ? 'company-interpretation:' + profile.id + ':v' + profile.version + ':' + model + ':' + crypto.randomUUID()
