@@ -1386,3 +1386,32 @@ button[aria-busy="true"]>span:last-child{display:inline-flex;align-items:center}
 @media(max-width:980px){
   .workspace-sidebar .brand-wordmark img{width:96px}
 }
+
+
+/* Supplied Riseklix mark replaces the temporary R tile */
+.brand-wordmark{
+  display:inline-flex;
+  align-items:center;
+  gap:9px;
+  letter-spacing:.12em;
+}
+.brand-wordmark .brand-mark{
+  width:32px;
+  height:32px;
+  flex:none;
+  border-radius:9px;
+  background-color:#050505;
+  background-image:url('/riseklix-logo.png');
+  background-repeat:no-repeat;
+  background-size:68px 68px;
+  background-position:center 34%;
+  box-shadow:inset 0 0 0 1px rgba(255,255,255,.07);
+}
+.brand-wordmark strong{font-size:11px}
+.auth-card .auth-brand{margin-bottom:20px}
+.sidebar-product{margin-left:41px}
+
+@media(max-width:980px){
+  .brand-wordmark strong{display:none}
+  .sidebar-product{display:none}
+}
