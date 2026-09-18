@@ -279,8 +279,8 @@ const handler = {
     const budgetState = record(budget.data)
     if (budgetState.allowed !== true) {
       return json({
-        error: 'daily_observation_budget_exceeded',
-        message: 'This workspace reached its daily observation safety limit. Riseklix stopped before making more provider or extraction calls.',
+        error: 'observation_budget_exceeded',
+        message: budgetState.blocked_scope === 'minute' ? 'Riseklix hit the workspace per-minute observation safety limit. No additional provider or extraction calls were made.' : 'Riseklix hit the workspace daily observation safety limit. No additional provider or extraction calls were made.',
         usage: budgetState,
       }, 429)
     }
