@@ -95,6 +95,10 @@ export async function runCompanyResearch(formData: FormData) {
     redirect('/projects/' + parsed.data.project_id + '/company-profile?message=' + encodeURIComponent(interpretationMessage))
   }
 
+  if (interpretation.data?.pending) {
+    redirect('/projects/' + parsed.data.project_id + '/company-profile?message=' + encodeURIComponent(String(interpretation.data.message || captureMessage + ' Outside-in verification is running in the background.')))
+  }
+
   const company = interpretation.data?.profile?.company_name
   const uncertainty = Number(interpretation.data?.profile?.uncertainty_count ?? 0)
   const message = company
