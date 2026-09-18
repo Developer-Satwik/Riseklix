@@ -48,7 +48,7 @@ const handler = {
     if (!projectId || !benchmarkId) return json({ error: 'project_id and benchmark_id are required' }, 400)
 
     const [{ data: project }, { data: benchmark }, { data: activeJob }] = await Promise.all([
-      ctx.supabase.from('projects').select('id,workspace_id').eq('id', projectId).single(),
+      ctx.supabase.from('projects').select('id,workspace_id,analysis_mode').eq('id', projectId).single(),
       ctx.supabase.from('benchmarks').select('id,status').eq('id', benchmarkId).eq('project_id', projectId).single(),
       ctx.supabase
         .from('research_jobs')
@@ -249,8 +249,16 @@ const handler = {
         completed_at: new Date().toISOString(),
       }).eq('id', job.id)
 
-      // Observation completion is not analysis completion. The WHY layer still
-      // needs to run before Autopilot can mark the project complete.
+      // In Autopilot, observation completion is not analysis completion: the WHY
+      // layer still needs to finish before the project can be marked complete.
+      // Manual mode keeps the legacy benchmark-complete project state.
+      if (complete && project.analysis_mode !== 'autopilot') {
+        await ctx.supabase.from('projects').update({
+          status: 'complete',
+          updated_at: new Date().toISOString(),
+        }).eq('id', project.id)
+      }
+
       await continueAutopilot(req, project.id)
     })().catch(async (error) => {
       const message = error instanceof Error ? error.message : 'Unknown multi-surface observation error'
