@@ -1977,3 +1977,75 @@ button[aria-busy="true"]>span:last-child{display:inline-flex;align-items:center}
   .autopilot-banner{display:block}
   .autopilot-banner>span{display:inline-block;margin-top:11px}
 }
+
+
+.autopilot-progress-card{
+  margin:0 0 18px;
+  padding:16px 18px;
+  border:1px solid var(--border);
+  border-radius:11px;
+  background:#101012;
+}
+.autopilot-progress-card.paused{
+  border-color:#665433;
+  background:#17140f;
+}
+.autopilot-progress-head{
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:24px;
+}
+.autopilot-progress-head h2{
+  font:400 24px/1.08 var(--serif);
+  margin:6px 0 5px;
+}
+.autopilot-progress-head p{
+  max-width:760px;
+  margin:0;
+  color:var(--subtle);
+  font-size:10px;
+  line-height:1.5;
+}
+.autopilot-progress-head>strong{
+  flex:none;
+  font:400 30px/1 var(--serif);
+  color:#ddd4c5;
+}
+.autopilot-progress-track{
+  height:6px;
+  margin-top:14px;
+  border-radius:999px;
+  background:#252528;
+  overflow:hidden;
+}
+.autopilot-progress-track i{
+  display:block;
+  height:100%;
+  border-radius:999px;
+  background:#d8cfbc;
+  transition:width .25s ease;
+}
+.autopilot-progress-card.paused .autopilot-progress-track i{
+  background:#b99b60;
+}
+.autopilot-progress-meta{
+  display:flex;
+  gap:6px;
+  flex-wrap:wrap;
+  margin-top:10px;
+}
+.autopilot-progress-meta span{
+  font-size:8px;
+  letter-spacing:.045em;
+  color:var(--faint);
+  border:1px solid #2d2d31;
+  border-radius:999px;
+  padding:4px 6px;
+  background:#0d0d0f;
+}
+
+@media(max-width:680px){
+  .autopilot-progress-head{display:block}
+  .autopilot-progress-head>strong{display:block;margin-top:10px}
+}
