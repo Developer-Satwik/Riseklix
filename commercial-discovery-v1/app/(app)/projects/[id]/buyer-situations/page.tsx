@@ -1,4 +1,3 @@
-import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import { addIntentCandidate, approveIntent, rejectIntent } from './actions'
 import { generateBuyerIntents } from './generate-actions'
