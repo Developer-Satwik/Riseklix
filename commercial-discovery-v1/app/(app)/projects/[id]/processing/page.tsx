@@ -26,8 +26,16 @@ function stageTitle(stage?: string | null) {
   return found?.[1] || stage.replaceAll('_', ' ')
 }
 
-export default async function ProcessingPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function ProcessingPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>
+  searchParams: Promise<Record<string, string | string[] | undefined>>
+}) {
   const { id } = await params
+  const query = await searchParams
+  const pageError = typeof query.error === 'string' ? query.error : null
   const supabase = await createClient()
 
   const [{ data: project }, { data: profile }, { data: run }, { data: jobs }, { data: surfaces }] = await Promise.all([
@@ -81,6 +89,8 @@ export default async function ProcessingPage({ params }: { params: Promise<{ id:
         complete={false}
         paused={paused}
       />
+
+      {pageError && <div className="form-alert error" role="alert">{pageError}</div>}
 
       <section className="processing-hero">
         <div className="processing-orbit" aria-hidden="true">
