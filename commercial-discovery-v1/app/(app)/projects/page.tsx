@@ -31,7 +31,7 @@ export default async function ProjectsPage() {
         <Link href="/projects/new" className="primary-link">New analysis <span aria-hidden="true">+</span></Link>
       </header>
 
-      {error && <div className="form-alert error">Could not load projects: {error.message}</div>}
+      {error && <div className="form-alert error" role="alert">Could not load projects: {error.message}</div>}
 
       {!!projects?.length && (
         <>
