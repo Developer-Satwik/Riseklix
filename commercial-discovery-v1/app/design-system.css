@@ -1311,3 +1311,17 @@ button:disabled{cursor:not-allowed}
   .delivery-inputs{grid-template-columns:1fr}
   .delivery-status-actions button.verified{margin-left:0}
 }
+
+
+.benchmark-progress{
+  margin-top:13px;border:1px solid var(--border);border-radius:9px;background:#101012;padding:13px
+}
+.benchmark-progress>div:first-child{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+.benchmark-progress strong{font-size:11px}
+.benchmark-progress span{font-size:9px;color:var(--subtle)}
+.benchmark-progress-track{
+  height:5px;background:#222226;border-radius:999px;overflow:hidden;margin-top:11px
+}
+.benchmark-progress-track i{
+  display:block;height:100%;background:var(--gold);border-radius:999px;transition:width .2s var(--ease)
+}
