@@ -66,8 +66,6 @@ export default async function RecheckPage({ params, searchParams }: { params: Pr
             const promptCount = (memberships ?? []).filter((member) => member.benchmark_id === benchmark.id).length
             const benchmarkObservations = (observations ?? []).filter((run) => run.benchmark_id === benchmark.id)
             const captured = benchmarkObservations.filter((run) => run.run_status === 'captured')
-            const unaided = captured.filter((run) => record(run.metadata).prompt_mode === 'unaided')
-            const unaidedRetrieved = unaided.filter((run) => run.retrieval_status === 'retrieved')
             const repetitions = typeof config.repetitions_per_expression === 'number' ? config.repetitions_per_expression : 3
             const benchmarkSurfaces = (surfaces ?? []).filter((surface) => surface.benchmark_id === benchmark.id && surface.enabled)
             const expectedTotal = benchmarkSurfaces.reduce((sum, surface) => sum + (surface.expected_runs || 0), 0)
