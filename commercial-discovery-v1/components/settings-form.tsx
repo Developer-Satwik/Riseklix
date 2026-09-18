@@ -65,7 +65,6 @@ export function SettingsForm({
 
   useEffect(() => {
     if (!saved) return
-    setSavedVisible(true)
     const timer = window.setTimeout(() => setSavedVisible(false), 2600)
     return () => window.clearTimeout(timer)
   }, [saved])
