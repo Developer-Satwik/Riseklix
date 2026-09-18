@@ -133,7 +133,7 @@ async function extractBrands(openai: OpenAI, model: string, answer: string, targ
 
   const response = await openai.responses.create({
     model,
-    reasoning: { effort: 'low' },
+    reasoning: { effort: 'none' },
     instructions: `Extract commercial provider mentions from an already-produced AI answer. Do not add, infer or correct brands.\n\nA brand is in_recommended_set only if the answer actually recommends, shortlists, proposes or presents it as a provider/option for the user's buying request. Mere background mention, citation source, comparison reference or prompt-provided target name does not count.\n\nOrder means response order among identifiable brands in the recommended/shortlisted provider set. target_rank must be null unless the target is in that set.`,
     input: `Target company: ${targetCompany}\nKnown intent-specific competitors (matching aid only; do not force them): ${competitorNames.join(', ')}\n\nAnswer to extract:\n${answer}`,
     text: { format: { type: 'json_schema', name: 'riseklix_brand_extraction', strict: true, schema } },
@@ -187,7 +187,7 @@ const handler = {
 
     const config = record(benchmark.collection_config)
     const repetitions = Math.max(1, Math.min(Number(config.repetitions_per_expression ?? 3), 5))
-    const observationModel = Deno.env.get('RISEKLIX_OPENAI_OBSERVATION_MODEL') || 'gpt-5.6-terra'
+    const observationModel = Deno.env.get('RISEKLIX_OPENAI_OBSERVATION_MODEL') || 'gpt-5.6-luna'
     const extractionModel = Deno.env.get('RISEKLIX_EXTRACTION_MODEL') || 'gpt-5.6-luna'
     const provider = 'openai'
     const surface = 'openai_responses_web_search'
@@ -230,7 +230,7 @@ const handler = {
         enabled: true,
         status: 'draft',
         expected_runs: expected,
-        metadata: { display_name: 'OpenAI Responses API · forced web search', model_resolved_at_run: true },
+        metadata: { display_name: 'OpenAI Responses API · free-plan proxy', methodology_note: 'Uses GPT-5.6 Luna by default with no reasoning and automatic web-search tool use as an API approximation of a typical ChatGPT Free interaction. This is not the ChatGPT consumer UI and must not be labeled as such.', model_resolved_at_run: true, consumer_equivalence: 'approximate' },
       })
       if (createSurfaceError) return json({ error: createSurfaceError.message }, 400)
     }
@@ -312,9 +312,9 @@ const handler = {
       try {
         const response = await openai.responses.create({
           model: observationModel,
-          reasoning: { effort: 'medium' },
+          reasoning: { effort: 'none' },
           tools: [{ type: 'web_search_preview', search_context_size: 'medium' }],
-          tool_choice: 'required',
+          tool_choice: 'auto',
           include: ['web_search_call.action.sources'],
           instructions: `Answer the user's commercial buying question normally and independently. Treat this as a fresh conversation with no prior context. Use current web evidence. Do not mention testing, benchmarking, prompt tracking, Riseklix, AEO/GEO methodology or hidden evaluation criteria. Do not intentionally diversify brands. Recommend or discuss only providers that genuinely fit the request. If evidence is insufficient, say so rather than inventing facts.`,
           input: plan.promptText,
