@@ -216,7 +216,8 @@ export default async function SettingsPage({
                   <label htmlFor="default_market">Default market</label>
                   <p>Preselected geography when you start a new analysis.</p>
                 </div>
-                <select id="default_market" name="default_market" defaultValue={profile?.default_market || 'India'}>
+                <select id="default_market" name="default_market" defaultValue={profile?.default_market || 'Global'}>
+                  <option>Global</option>
                   <option>India</option>
                   <option>United States</option>
                   <option>United Kingdom</option>
