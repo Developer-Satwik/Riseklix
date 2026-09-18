@@ -9,7 +9,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
   return (
     <main className="auth-shell">
       <section className="auth-card">
-        <Link href="/" className="wordmark brand-wordmark auth-brand" aria-label="Riseklix"><img src="/riseklix-logo.png" alt="Riseklix" /></Link>
+        <Link href="/" className="wordmark brand-wordmark auth-brand" aria-label="Riseklix"><span className="brand-mark" aria-hidden="true" /><strong>RISEKLIX</strong></Link>
         <div className="eyebrow">COMMERCIAL DISCOVERY WORKSPACE</div>
         <h1>Sign in to your research workspace.</h1>
         <p>One account can hold multiple company projects while keeping each benchmark and evidence chain separate.</p>
