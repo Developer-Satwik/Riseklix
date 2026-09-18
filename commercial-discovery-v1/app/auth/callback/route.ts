@@ -24,7 +24,13 @@ export async function GET(request: NextRequest) {
   if (error || !data.user) {
     redirectTo.pathname = '/login'
     redirectTo.search = ''
-    redirectTo.searchParams.set('error', error?.message || 'Could not complete sign in')
+
+    const message = error?.message || 'Could not complete sign in'
+    const friendlyMessage = /pkce|code verifier/i.test(message)
+      ? 'We could not finish social sign-in because the secure browser sign-in state was missing. Start again from the same Riseklix tab and domain.'
+      : message
+
+    redirectTo.searchParams.set('error', friendlyMessage)
     return NextResponse.redirect(redirectTo)
   }
 
