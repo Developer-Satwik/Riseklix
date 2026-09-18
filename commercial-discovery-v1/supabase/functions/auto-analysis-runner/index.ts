@@ -628,6 +628,18 @@ const handler = {
       }
     }
 
+    if (baseline.status === 'failed') {
+      const capturedCount = await ctx.supabase
+        .from('observation_runs')
+        .select('id', { count: 'exact', head: true })
+        .eq('benchmark_id', baseline.id)
+        .eq('run_status', 'captured')
+
+      if ((capturedCount.count ?? 0) === 0) {
+        return await pause('multi_model_testing_failed', 88, 'All configured observation surfaces failed before a usable answer was captured. Autopilot stopped instead of retrying and spending more credits.')
+      }
+    }
+
     const [{ data: currentFindings }, { data: observedIntentRows }] = await Promise.all([
       ctx.supabase.from('findings').select('id,buyer_intent_id,review_status').eq('benchmark_id', baseline.id).eq('is_current', true),
       ctx.supabase.from('observation_runs').select('buyer_intent_id').eq('benchmark_id', baseline.id).eq('run_status', 'captured'),
