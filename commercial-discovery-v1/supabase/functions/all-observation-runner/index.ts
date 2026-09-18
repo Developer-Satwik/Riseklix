@@ -79,13 +79,13 @@ const handler = {
 
       const surfaceRows = await ctx.supabase
         .from('benchmark_surfaces')
-        .select('id,provider,status,enabled,expected_runs,captured_runs')
+        .select('id,provider,status,enabled,expected_runs,captured_runs,error_runs,metadata')
         .eq('benchmark_id', benchmark.id)
         .eq('enabled', true)
 
       const configured = surfaceRows.data ?? []
       const runnablePlans = providerPlans.filter((plan) =>
-        configured.some((surface) => surface.provider === plan.provider && surface.status !== 'complete')
+        configured.some((surface) => surface.provider === plan.provider && surface.status !== 'complete' && surface.enabled)
       )
 
       const headers: Record<string, string> = {
@@ -119,6 +119,19 @@ const handler = {
 
             if (!response.ok || lastPayload.error) {
               error = String(lastPayload.message || lastPayload.error || ('HTTP ' + response.status))
+              const surface = configured.find((item) => item.provider === plan.provider)
+              if (surface) {
+                await ctx.supabase.from('benchmark_surfaces').update({
+                  status: 'failed',
+                  error_runs: Number(surface.error_runs || 0) + 1,
+                  metadata: {
+                    ...record(surface.metadata),
+                    last_error: error,
+                    last_error_at: new Date().toISOString(),
+                  },
+                  updated_at: new Date().toISOString(),
+                }).eq('id', surface.id)
+              }
               break
             }
 
@@ -126,6 +139,19 @@ const handler = {
             if (Number(lastPayload.remaining ?? 0) <= 0) break
           } catch (caught) {
             error = caught instanceof Error ? caught.message : 'Unknown observation orchestration error'
+            const surface = configured.find((item) => item.provider === plan.provider)
+            if (surface) {
+              await ctx.supabase.from('benchmark_surfaces').update({
+                status: 'failed',
+                error_runs: Number(surface.error_runs || 0) + 1,
+                metadata: {
+                  ...record(surface.metadata),
+                  last_error: error,
+                  last_error_at: new Date().toISOString(),
+                },
+                updated_at: new Date().toISOString(),
+              }).eq('id', surface.id)
+            }
             break
           }
         }
