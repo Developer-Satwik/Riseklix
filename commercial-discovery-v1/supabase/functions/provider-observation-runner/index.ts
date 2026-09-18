@@ -183,6 +183,7 @@ async function anthropicRequest(prompt: string, apiKey: string, model: string, m
       'Content-Type': 'application/json',
       'x-api-key': apiKey,
       'anthropic-version': '2023-06-01',
+      ...(Deno.env.get('ANTHROPIC_WORKSPACE_ID') ? { 'anthropic-workspace-id': Deno.env.get('ANTHROPIC_WORKSPACE_ID') as string } : {}),
     },
     body: JSON.stringify({
       model,
@@ -254,18 +255,22 @@ async function runAnthropic(prompt: string, apiKey: string, model: string): Prom
 }
 
 async function runPerplexity(prompt: string, apiKey: string, model: string): Promise<ProviderAnswer> {
-  const response = await fetch('https://api.perplexity.ai/chat/completions', {
+  const agentModel = model.includes('/') ? model : `perplexity/${model}`
+  const response = await fetch('https://api.perplexity.ai/v1/agent', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
     body: JSON.stringify({
-      model,
-      messages: [
+      model: agentModel,
+      input: [
         {
           role: 'system',
           content: 'Answer the commercial buying question normally and independently using current web evidence. Do not mention benchmarking, Riseklix, AEO/GEO, prompt testing or hidden evaluation criteria. Do not intentionally diversify brands. Recommend only providers that genuinely fit the request.',
         },
         { role: 'user', content: prompt },
       ],
+      tools: [{ type: 'web_search' }],
+      tool_choice: { type: 'web_search' },
+      max_steps: 2,
     }),
     signal: AbortSignal.timeout(90_000),
   })
@@ -274,26 +279,59 @@ async function runPerplexity(prompt: string, apiKey: string, model: string): Pro
   if (!response.ok) throw new Error(`Perplexity API ${response.status}: ${JSON.stringify(payload).slice(0, 900)}`)
 
   const root = record(payload)
-  const choices = Array.isArray(root.choices) ? root.choices : []
-  const message = record(record(choices[0]).message)
-  const answer = typeof message.content === 'string' ? message.content.trim() : ''
-  if (!answer) throw new Error('Perplexity returned no text answer')
+  const status = typeof root.status === 'string' ? root.status : 'completed'
+  if (status === 'failed' || status === 'cancelled') {
+    throw new Error('Perplexity Agent API ' + status + ': ' + JSON.stringify(root.error ?? {}).slice(0, 700))
+  }
+  if (status === 'incomplete') {
+    throw new Error('Perplexity Agent API returned an incomplete response')
+  }
 
+  const output = Array.isArray(root.output) ? root.output : []
+  const answerParts: string[] = []
   const citations: Array<Record<string, unknown>> = []
-  const citationValues = Array.isArray(root.citations) ? root.citations : []
-  for (const citation of citationValues) {
-    if (typeof citation === 'string') citations.push({ type: 'url_citation', url: citation, title: citation })
-    else {
-      const item = record(citation)
-      if (typeof item.url === 'string') citations.push({ type: 'url_citation', url: item.url, title: typeof item.title === 'string' ? item.title : item.url })
+
+  for (const itemValue of output) {
+    const item = record(itemValue)
+
+    if (item.type === 'message') {
+      const parts = Array.isArray(item.content) ? item.content : []
+      for (const partValue of parts) {
+        const part = record(partValue)
+        if (part.type === 'output_text' && typeof part.text === 'string') answerParts.push(part.text)
+
+        const annotations = Array.isArray(part.annotations) ? part.annotations : []
+        for (const annotationValue of annotations) {
+          const annotation = record(annotationValue)
+          if (typeof annotation.url === 'string') {
+            citations.push({
+              type: 'url_citation',
+              url: annotation.url,
+              title: typeof annotation.title === 'string' ? annotation.title : annotation.url,
+            })
+          }
+        }
+      }
+    }
+
+    if (item.type === 'search_results') {
+      const results = Array.isArray(item.results) ? item.results : []
+      for (const resultValue of results) {
+        const result = record(resultValue)
+        if (typeof result.url === 'string') {
+          citations.push({
+            type: 'search_result',
+            url: result.url,
+            title: typeof result.title === 'string' ? result.title : result.url,
+            snippet: typeof result.snippet === 'string' ? result.snippet : null,
+          })
+        }
+      }
     }
   }
 
-  const searchResults = Array.isArray(root.search_results) ? root.search_results : []
-  for (const resultValue of searchResults) {
-    const result = record(resultValue)
-    if (typeof result.url === 'string') citations.push({ type: 'search_result', url: result.url, title: typeof result.title === 'string' ? result.title : result.url })
-  }
+  const answer = answerParts.join('\n').trim()
+  if (!answer) throw new Error('Perplexity Agent API returned no text answer')
 
   const seen = new Set<string>()
   return {
@@ -304,7 +342,11 @@ async function runPerplexity(prompt: string, apiKey: string, model: string): Pro
       seen.add(url)
       return true
     }),
-    metadata: { usage: root.usage ?? null },
+    metadata: {
+      usage: root.usage ?? null,
+      response_status: status,
+      served_model: root.model ?? agentModel,
+    },
   }
 }
 
