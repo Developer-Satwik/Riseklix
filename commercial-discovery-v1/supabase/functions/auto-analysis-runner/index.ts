@@ -611,11 +611,6 @@ const handler = {
         })
       }
 
-      const failedTestJobs = activeTests.filter((job) => job.status === 'failed')
-      if (failedTestJobs.length >= MAX_STAGE_FAILURES) {
-        return await pause('running_multi_model_tests_paused', 80, 'Multi-model testing failed twice. Autopilot paused instead of spending more API credits on automatic retries.')
-      }
-
       try {
         await updateRun({ stage: 'running_multi_model_tests', progress: 74 })
         await invoke('all-observation-runner', {
