@@ -70,6 +70,10 @@ export default async function RecheckPage({ params, searchParams }: { params: Pr
             const unaidedRetrieved = unaided.filter((run) => run.retrieval_status === 'retrieved')
             const repetitions = typeof config.repetitions_per_expression === 'number' ? config.repetitions_per_expression : 3
             const benchmarkSurfaces = (surfaces ?? []).filter((surface) => surface.benchmark_id === benchmark.id && surface.enabled)
+            const expectedTotal = benchmarkSurfaces.reduce((sum, surface) => sum + (surface.expected_runs || 0), 0)
+            const capturedTotal = benchmarkSurfaces.reduce((sum, surface) => sum + (surface.captured_runs || 0), 0)
+            const completedSurfaces = benchmarkSurfaces.filter((surface) => surface.status === 'complete').length
+            const progress = expectedTotal ? Math.min(Math.round((capturedTotal / expectedTotal) * 100), 100) : 0
 
             return (
               <article key={benchmark.id}>
@@ -80,6 +84,15 @@ export default async function RecheckPage({ params, searchParams }: { params: Pr
                   <div><small>Buyer intents</small><strong>{typeof config.intent_count === 'number' ? config.intent_count : '—'}</strong></div>
                   <div><small>Repetitions</small><strong>{repetitions}</strong></div>
                   <div><small>Enabled surfaces</small><strong>{benchmarkSurfaces.length}</strong></div>
+                </div>
+
+                <div className="benchmark-progress">
+                  <div>
+                    <div className="eyebrow">COLLECTION PROGRESS</div>
+                    <strong>{capturedTotal}/{expectedTotal || '—'} observations captured</strong>
+                    <span>{completedSurfaces}/{benchmarkSurfaces.length || 0} declared surfaces complete</span>
+                  </div>
+                  <div className="benchmark-progress-track" aria-label={progress + '% complete'}><i style={{ width: progress + '%' }} /></div>
                 </div>
 
                 <div className="surface-list">
