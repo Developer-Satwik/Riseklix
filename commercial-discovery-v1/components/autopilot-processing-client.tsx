@@ -23,11 +23,15 @@ export function AutopilotProcessingClient({
   const [notificationState, setNotificationState] = useState<NotificationState>('default')
 
   useEffect(() => {
-    if (!('Notification' in window)) {
-      setNotificationState('unsupported')
-      return
-    }
-    setNotificationState(Notification.permission as NotificationState)
+    const frame = window.requestAnimationFrame(() => {
+      if (!('Notification' in window)) {
+        setNotificationState('unsupported')
+        return
+      }
+      setNotificationState(Notification.permission as NotificationState)
+    })
+
+    return () => window.cancelAnimationFrame(frame)
   }, [])
 
   useEffect(() => {
