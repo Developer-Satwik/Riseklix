@@ -104,8 +104,9 @@ export async function createBaselinePanel(formData: FormData) {
     captured_runs: 0,
     error_runs: 0,
     metadata: {
-      display_name: 'OpenAI Responses API · forced web search',
-      methodology_note: 'API observation surface. Do not label as the ChatGPT consumer application.',
+      display_name: 'OpenAI Responses API · free-plan proxy',
+      methodology_note: 'Defaults to GPT-5.6 Luna with no reasoning and automatic web-search tool use to approximate a typical ChatGPT Free interaction. This remains an API surface, not the ChatGPT consumer application.',
+      consumer_equivalence: 'approximate',
       model_resolved_at_run: true,
     },
   })
