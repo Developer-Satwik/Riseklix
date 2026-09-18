@@ -29,7 +29,11 @@ export function AnalysisCompletionNotifier() {
       if (!('Notification' in window) || Notification.permission !== 'granted') return
 
       const supabase = createClient()
-      const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
+      const fallbackCutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
+      const enabledAt = window.localStorage.getItem('riseklix.analysis.notifications.enabled_at')
+      const cutoff = enabledAt && !Number.isNaN(Date.parse(enabledAt)) && enabledAt > fallbackCutoff
+        ? enabledAt
+        : fallbackCutoff
       const { data: runs } = await supabase
         .from('autopilot_runs')
         .select('project_id,completed_at')
