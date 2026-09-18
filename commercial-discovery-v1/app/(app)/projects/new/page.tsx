@@ -1,12 +1,32 @@
 import Link from 'next/link'
 import { createProject } from './actions'
 import { PendingButton } from '@/components/pending-button'
+import { createClient } from '@/lib/supabase/server'
 
-export default async function NewProjectPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
+export default async function NewProjectPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>
+}) {
   const params = await searchParams
   const domain = typeof params.domain === 'string' ? params.domain : ''
   const error = typeof params.error === 'string' ? params.error : null
   const welcome = params.welcome === '1'
+
+  const supabase = await createClient()
+  const { data: claims } = await supabase.auth.getClaims()
+  const userId = claims?.claims?.sub
+  const { data: profile } = typeof userId === 'string'
+    ? await supabase
+      .from('profiles')
+      .select('default_market, default_analysis_mode, default_primary_language')
+      .eq('id', userId)
+      .maybeSingle()
+    : { data: null }
+
+  const defaultMode = profile?.default_analysis_mode === 'manual' ? 'manual' : 'autopilot'
+  const defaultMarket = profile?.default_market || 'India'
+  const defaultLanguage = profile?.default_primary_language || 'English'
 
   return (
     <div className="new-project-shell new-analysis-page">
@@ -25,17 +45,18 @@ export default async function NewProjectPage({ searchParams }: { searchParams: P
             <label className="primary-field">Company website
               <input name="domain" defaultValue={domain} placeholder="company.com" autoFocus required />
             </label>
+
             <fieldset className="analysis-mode-picker">
               <legend>How much control do you want?</legend>
               <label className="analysis-mode-card">
-                <input type="radio" name="analysis_mode" value="autopilot" defaultChecked />
+                <input type="radio" name="analysis_mode" value="autopilot" defaultChecked={defaultMode === 'autopilot'} />
                 <span>
                   <strong>Let AI do the whole evaluation for me</strong>
                   <small>Recommended · You only confirm the Company Intelligence profile once. After that Riseklix chooses the Buyer Situations, competitors and questions, runs the enabled AI models, and prepares the diagnosis automatically.</small>
                 </span>
               </label>
               <label className="analysis-mode-card">
-                <input type="radio" name="analysis_mode" value="manual" />
+                <input type="radio" name="analysis_mode" value="manual" defaultChecked={defaultMode === 'manual'} />
                 <span>
                   <strong>Manual Editing</strong>
                   <small>Keep review controls throughout the workflow. Approve or reject Buyer Situations, questions and findings before they move forward.</small>
@@ -43,9 +64,9 @@ export default async function NewProjectPage({ searchParams }: { searchParams: P
               </label>
             </fieldset>
 
-            <div className="new-project-secondary">
+            <div className="new-project-secondary new-project-secondary-three">
               <label>Primary market
-                <select name="market" defaultValue="India">
+                <select name="market" defaultValue={defaultMarket}>
                   <option>India</option>
                   <option>United States</option>
                   <option>United Kingdom</option>
@@ -54,12 +75,22 @@ export default async function NewProjectPage({ searchParams }: { searchParams: P
                   <option>Australia</option>
                 </select>
               </label>
+
+              <label>Research language
+                <select name="primary_language" defaultValue={defaultLanguage}>
+                  <option>English</option>
+                  <option>Hindi</option>
+                  <option>Hinglish</option>
+                </select>
+              </label>
+
               <label>Industry <small>optional</small>
                 <input name="industry" placeholder="e.g. industrial access equipment" />
               </label>
             </div>
+
             <PendingButton pendingLabel="Creating workspace…">Start company research <span aria-hidden="true">→</span></PendingButton>
-            <small className="form-trust-note">Both modes require one Company Intelligence confirmation before the analysis can continue.</small>
+            <small className="form-trust-note">Your account defaults prefill this form. Both modes still require one Company Intelligence confirmation before the analysis can continue.</small>
           </form>
         </section>
 
