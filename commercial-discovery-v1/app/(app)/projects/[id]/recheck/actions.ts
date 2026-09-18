@@ -128,6 +128,8 @@ export async function createBaselinePanel(formData: FormData) {
     payload: { prompt_count: selected.length, intent_count: eligible.length, languages, configured_surfaces: ['openai_responses_web_search'] },
   })
 
+  await supabase.from('projects').update({ status: 'running', updated_at: new Date().toISOString() }).eq('id', project.id)
+
   redirect(`/projects/${project.id}/recheck?message=${encodeURIComponent(`Baseline panel frozen with ${selected.length} approved expressions across ${eligible.length} Buyer Intents`)}`)
 }
 
@@ -161,6 +163,10 @@ export async function runOpenAIObservationBatch(formData: FormData) {
   const message = data?.surface_complete
     ? `OpenAI observation surface complete. ${Number(data?.total_captured ?? data?.captured ?? 0)} captures stored.${data?.benchmark_complete ? ' Benchmark complete.' : ''}`
     : `Observation batch stored: ${captured} captured, ${failed} failed, ${remaining} remaining on this surface.`
+
+  if (data?.benchmark_complete) {
+    await supabase.from('projects').update({ status: 'complete', updated_at: new Date().toISOString() }).eq('id', parsed.data.project_id)
+  }
 
   redirect(`/projects/${parsed.data.project_id}/recheck?message=${encodeURIComponent(message)}`)
 }
