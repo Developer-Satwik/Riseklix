@@ -6,9 +6,10 @@ import { usePathname } from 'next/navigation'
 const stages = [
   ['01', 'Overview', 'overview'],
   ['02', 'Buyer Situations', 'buyer-situations'],
-  ['03', 'Why', 'why'],
-  ['04', 'Fixes', 'fixes'],
-  ['05', 'Recheck', 'recheck'],
+  ['03', 'Test', 'test'],
+  ['04', 'Why', 'why'],
+  ['05', 'Fixes', 'fixes'],
+  ['06', 'Recheck', 'recheck'],
 ] as const
 
 export function ProjectNav({ projectId }: { projectId: string }) {
