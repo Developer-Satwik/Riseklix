@@ -76,12 +76,14 @@ function outputText(response: unknown) {
   return ''
 }
 
-function sourcePacket(source: { id: string; url: string; title: string | null; metadata: unknown }) {
+function sourcePacket(source: { id: string; url: string; title: string | null; source_type: string; metadata: unknown }) {
   const metadata = record(source.metadata)
   return {
     ref: source.id,
     url: source.url,
     title: source.title,
+    source_type: source.source_type,
+    acquisition_method: typeof metadata.acquisition_method === 'string' ? metadata.acquisition_method : 'direct_first_party_fetch',
     source_role: typeof metadata.source_role === 'string' ? metadata.source_role : 'first_party',
     description: typeof metadata.description === 'string' ? metadata.description.slice(0, 900) : '',
     text_sample: typeof metadata.text_sample === 'string' ? metadata.text_sample.slice(0, 6500) : '',
@@ -103,7 +105,7 @@ const handler = {
     const [{ data: project, error: projectError }, { data: profile, error: profileError }, { data: sources, error: sourceError }] = await Promise.all([
       ctx.supabase.from('projects').select('id,workspace_id,name,domain,market,primary_language,enabled_languages').eq('id', projectId).single(),
       ctx.supabase.from('company_profile_versions').select('id,version,status,company_name,industry').eq('project_id', projectId).eq('is_current', true).single(),
-      ctx.supabase.from('research_sources').select('id,url,title,metadata').eq('project_id', projectId).eq('source_type', 'first_party').order('captured_at', { ascending: false }).limit(14),
+      ctx.supabase.from('research_sources').select('id,url,title,source_type,metadata').eq('project_id', projectId).in('source_type', ['first_party','search_result']).order('captured_at', { ascending: false }).limit(14),
     ])
 
     if (projectError || profileError || sourceError || !project || !profile) return json({ error: 'Project context could not be loaded' }, 404)
@@ -143,7 +145,7 @@ const handler = {
 Your job is to reconstruct the company's commercial reality from supplied FIRST-PARTY evidence before Buyer Intent generation.
 
 Rules:
-1. Use only the supplied source packets. Do not perform outside research in this step and do not use unstated general knowledge to fill gaps.
+1. Use only the supplied source packets. Do not perform outside research in this step and do not use unstated general knowledge to fill gaps. Some packets may be direct first-party captures while others may be indexed first-party fallback evidence; preserve that distinction.
 2. Separate facts supported by the evidence from uncertainty. If geography, service capacity, customer type, commercial model, certifications or operational claims are not explicit enough, place the gap in uncertainty.
 3. Do not turn marketing adjectives into verified capabilities.
 4. Products are things sold or supplied. Services describe how customers engage, such as rental, implementation, installation, consulting, support or project delivery.
@@ -151,7 +153,7 @@ Rules:
 6. Geographies should reflect evidence actually present. Never infer pan-national or local coverage from a generic contact page.
 7. The summary should be concise, commercial and neutral. It should explain what the company appears to provide, to whom, and how customers buy where supported.
 8. Every claim and evidence fact must cite source_refs from the supplied packets.
-9. 'supported' means directly supported by supplied first-party evidence, not independently verified truth. Use 'uncertain' when the source language is incomplete or promotional.
+9. 'supported' means supported by the supplied evidence, not independently verified truth. Treat indexed-first-party fallback evidence as weaker than a direct page capture and preserve that limitation in uncertainty when it materially affects a claim.
 10. Preserve contradictions or missing detail in uncertainty rather than resolving them silently.`,
         input: 'Project context:\n' + JSON.stringify({
           domain: project.domain, market: project.market, primary_language: project.primary_language,
