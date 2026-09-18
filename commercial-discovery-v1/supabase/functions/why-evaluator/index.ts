@@ -189,7 +189,7 @@ const handler = {
     ])
 
     const sourceById = new Map((sources ?? []).map((source) => [source.id, source]))
-    const model = Deno.env.get('RISEKLIX_WHY_MODEL') || 'gpt-5.6-terra'
+    const model = Deno.env.get('RISEKLIX_WHY_MODEL') || 'gpt-5.6-sol'
     const userId = String(ctx.userClaims?.id ?? ctx.jwtClaims?.sub ?? '') || null
     const { data: job, error: jobError } = await ctx.supabase.from('research_jobs').insert({
       workspace_id: project.workspace_id,
