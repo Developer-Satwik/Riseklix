@@ -1325,3 +1325,14 @@ button:disabled{cursor:not-allowed}
 .benchmark-progress-track i{
   display:block;height:100%;background:var(--gold);border-radius:999px;transition:width .2s var(--ease)
 }
+
+
+/* Server-action feedback */
+button[aria-busy="true"]{opacity:.74;cursor:wait}
+button[aria-busy="true"]>span:last-child{display:inline-flex;align-items:center}
+.button-spinner{
+  display:inline-block;width:11px;height:11px;margin-right:7px;border-radius:50%;
+  border:1.5px solid currentColor;border-right-color:transparent;animation:rk-spin .7s linear infinite
+}
+@keyframes rk-spin{to{transform:rotate(360deg)}}
+@media(prefers-reduced-motion:reduce){.button-spinner{animation:none;border-right-color:currentColor;opacity:.5}}
