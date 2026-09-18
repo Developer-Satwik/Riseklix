@@ -716,3 +716,76 @@ button:disabled{cursor:not-allowed}
   .intent-workbench-summary,.competitor-list{grid-template-columns:1fr!important}
   .workflow-disclosure>summary{align-items:flex-start}
 }
+
+
+/* WHY — executive decision brief above evidence dossiers */
+.why-engine-state{
+  display:flex;justify-content:space-between;align-items:center;gap:24px;
+  border:1px solid var(--border);background:var(--panel);border-radius:12px;padding:18px;margin-bottom:12px
+}
+.why-engine-state.ready{border-color:#3b3a32;background:#15140f}
+.why-engine-state h2{font:400 26px/1.1 var(--serif);margin:7px 0 6px}
+.why-engine-state p{font-size:11px;color:var(--subtle);max-width:760px;line-height:1.55;margin:0}
+.why-engine-state button{
+  min-height:39px;padding:0 13px;border:0;border-radius:8px;background:var(--cream);color:var(--ink);
+  font-size:11px;font-weight:800;white-space:nowrap
+}
+.why-summary-strip{
+  display:grid;grid-template-columns:repeat(4,1fr);
+  border-top:1px solid var(--border);border-bottom:1px solid var(--border);
+  margin:18px 0 24px
+}
+.why-summary-strip>div{padding:16px 15px 16px 0;border-right:1px solid var(--border)}
+.why-summary-strip>div+div{padding-left:15px}
+.why-summary-strip>div:last-child{border-right:0}
+.why-summary-strip span,.why-summary-strip strong,.why-summary-strip small{display:block}
+.why-summary-strip span{font-size:9px;text-transform:uppercase;letter-spacing:.08em;color:var(--subtle)}
+.why-summary-strip strong{font:400 26px var(--serif);margin:8px 0 5px}
+.why-summary-strip small{font-size:10px;color:var(--faint);line-height:1.4}
+.why-summary-strip .fix strong{color:var(--coral)}
+.why-summary-strip .investigate strong{color:var(--gold)}
+.why-summary-strip .monitor strong{color:var(--blue)}
+.why-summary-strip .healthy strong{color:var(--sage)}
+
+.why-findings{gap:12px}
+.why-findings .finding-card>header{align-items:center}
+.finding-badges{display:flex;gap:5px;flex-wrap:wrap}
+.finding-badges span{
+  font:8px var(--sans);text-transform:uppercase;letter-spacing:.075em;
+  color:#786f64;border:1px solid #cbc0b2;border-radius:999px;padding:4px 6px
+}
+.finding-card>header>strong{
+  font:800 9px var(--sans);letter-spacing:.09em
+}
+.finding-intent{border-top:1px solid #d0c6b9;margin-top:16px;padding-top:17px}
+.finding-intent small{font-size:9px}
+.finding-intent h2{font:400 27px/1.08 var(--serif);letter-spacing:-.025em;margin:5px 0 0}
+.finding-evidence{
+  border-top:1px solid #d0c6b9;margin-top:14px;padding-top:12px
+}
+.finding-evidence summary{cursor:pointer;font-size:10px;color:#6f665c}
+.finding-evidence>div{display:grid;gap:5px;margin-top:9px}
+.finding-evidence a{border:1px solid #d0c6b9;border-radius:7px;padding:8px 9px}
+.finding-evidence a span,.finding-evidence a strong{display:block}
+.finding-evidence a span{font-size:8px;text-transform:uppercase;color:#81776b}
+.finding-evidence a strong{font-size:10px;margin-top:2px}
+.finding-actions{display:flex;gap:7px;margin-top:15px}
+.finding-actions button{
+  min-height:36px;border:0;border-radius:7px;background:var(--ink);color:var(--cream);
+  padding:0 11px;font-size:10px;font-weight:800
+}
+.finding-actions button.reject{background:transparent;color:#8b554b;border:1px solid #c5a59e}
+.blueprint-ready{
+  margin-top:15px;padding:10px 11px;border-radius:7px;background:#dce8de;
+  color:#46604b;font-size:10px;font-weight:700
+}
+.blueprint-ready.neutral{background:#e7e0d6;color:#685f55}
+
+@media(max-width:760px){
+  .why-engine-state{display:block}
+  .why-engine-state form{margin-top:14px}
+  .why-engine-state button{width:100%}
+  .why-summary-strip{grid-template-columns:1fr 1fr}
+  .why-summary-strip>div:nth-child(2){border-right:0}
+  .why-summary-strip>div:nth-child(n+3){border-top:1px solid var(--border)}
+}
