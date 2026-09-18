@@ -207,7 +207,7 @@ const handler = {
       .eq('is_current', true)
       .single()
 
-    const model = Deno.env.get('RISEKLIX_COMPETITOR_MODEL') || 'gpt-5.6-terra'
+    const model = Deno.env.get('RISEKLIX_COMPETITOR_MODEL') || 'gpt-5.6-sol'
     const idempotencyKey = `competitor-discovery:${intent.id}:v${intent.version}:${model}`
 
     if (!body.regenerate) {
