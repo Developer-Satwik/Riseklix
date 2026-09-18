@@ -8,32 +8,6 @@ const MAX_PAGE_BYTES = 500_000
 const MAX_SITEMAP_BYTES = 300_000
 const MAX_PAGES = 8
 
-const INDEX_FALLBACK_SCHEMA = {
-  type: 'object',
-  additionalProperties: false,
-  required: ['pages', 'limitations'],
-  properties: {
-    pages: {
-      type: 'array',
-      minItems: 1,
-      maxItems: 8,
-      items: {
-        type: 'object',
-        additionalProperties: false,
-        required: ['url','title','description','text_sample','source_role'],
-        properties: {
-          url: { type: 'string' },
-          title: { type: 'string' },
-          description: { type: 'string' },
-          text_sample: { type: 'string' },
-          source_role: { type: 'string', enum: ['homepage_seed','commercial_capability','company_identity','geography_evidence','buyer_context','proof','supporting_page'] },
-        },
-      },
-    },
-    limitations: { type: 'array', items: { type: 'string' } },
-  },
-} as const
-
 class HttpStatusError extends Error {
   status: number
   url: string
@@ -47,22 +21,6 @@ class HttpStatusError extends Error {
 function record(value: unknown) {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
 }
-
-function outputText(response: unknown) {
-  const value = record(response)
-  if (typeof value.output_text === 'string') return value.output_text
-  const output = Array.isArray(value.output) ? value.output : []
-  for (const item of output) {
-    const message = record(item)
-    const parts = Array.isArray(message.content) ? message.content : []
-    for (const part of parts) {
-      const block = record(part)
-      if (typeof block.text === 'string') return block.text
-    }
-  }
-  return ''
-}
-
 
 function json(data: unknown, status = 200) {
   return Response.json(data, { status, headers: { 'Cache-Control': 'no-store' } })
