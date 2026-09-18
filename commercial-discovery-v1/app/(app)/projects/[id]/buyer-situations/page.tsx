@@ -4,6 +4,7 @@ import { generateBuyerIntents } from './generate-actions'
 import { discoverCompetitors } from './competitor-actions'
 import { approvePromptExpression, generatePromptExpressions, rejectPromptExpression } from './prompt-actions'
 import { PendingButton } from '@/components/pending-button'
+import { ResearchJobWatcher } from '@/components/research-job-watcher'
 
 function record(value: unknown) {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
@@ -35,6 +36,7 @@ export default async function BuyerSituationsPage({ params, searchParams }: { pa
 
   return (
     <div className="project-page">
+      <ResearchJobWatcher active={latestJob?.status === 'running'} />
       <section className="page-header compact">
         <div>
           <div className="eyebrow">WHERE SHOULD WE BE CONSIDERED?</div>
