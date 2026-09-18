@@ -11,7 +11,7 @@ export function WorkspaceSidebar({ email }: { email: string }) {
   return (
     <aside className="workspace-sidebar">
       <div>
-        <Link href="/projects" className="wordmark brand-wordmark" aria-label="Riseklix"><span className="brand-mark" aria-hidden="true" /><strong>RISEKLIX</strong></Link>
+        <Link href="/projects" className="wordmark brand-wordmark sidebar-logo-link" aria-label="Riseklix"><img src="/riseklix-logo.png" alt="Riseklix" /></Link>
         <div className="sidebar-product">Commercial Discovery</div>
       </div>
 
