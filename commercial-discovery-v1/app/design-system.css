@@ -1013,3 +1013,41 @@ button:disabled{cursor:not-allowed}
   .blueprint-core>div:first-child{border-top:0}
   .blueprint-queue-list article{grid-template-columns:1fr}
 }
+
+
+/* New analysis — staged confidence, minimal setup */
+.new-analysis-page{max-width:1080px;padding-top:54px}
+.back-link{display:inline-flex;font-size:10px;color:var(--subtle);margin-bottom:34px}
+.back-link:hover{color:var(--text)}
+.new-analysis-grid{display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:54px;align-items:start}
+.new-analysis-grid>section h1{font:400 52px/.98 var(--serif);letter-spacing:-.045em;margin:9px 0 15px}
+.new-analysis-grid>section>p{font-size:14px;color:var(--muted);line-height:1.65;max-width:680px}
+.new-analysis-page .new-project-form{margin-top:26px}
+.new-analysis-page .primary-field input{min-height:52px;font-size:15px;padding:0 14px}
+.new-project-secondary{display:grid;grid-template-columns:1fr 1fr;gap:9px}
+.new-analysis-page .new-project-form button{
+  margin-top:4px;display:flex;align-items:center;justify-content:space-between;
+  padding:0 15px;min-height:46px
+}
+.form-trust-note{font-size:10px;color:var(--subtle);line-height:1.45}
+.new-analysis-explainer{
+  position:sticky;top:156px;border:1px solid var(--border);background:var(--panel);border-radius:13px;padding:19px
+}
+.new-analysis-explainer ol{list-style:none;padding:0;margin:15px 0 0}
+.new-analysis-explainer li{display:grid;grid-template-columns:30px 1fr;gap:10px;padding:13px 0;border-top:1px solid var(--border)}
+.new-analysis-explainer li:first-child{border-top:0}
+.new-analysis-explainer li>span{font:9px var(--mono);color:var(--gold);padding-top:2px}
+.new-analysis-explainer strong{font-size:11px}
+.new-analysis-explainer p{font-size:10px;color:var(--subtle);line-height:1.45;margin:4px 0 0}
+.new-analysis-explainer blockquote{
+  margin:18px 0 0;padding:16px 0 0;border-top:1px solid var(--border);
+  font:400 19px/1.28 var(--serif);color:#cfc8bd
+}
+@media(max-width:900px){
+  .new-analysis-grid{grid-template-columns:1fr;gap:26px}
+  .new-analysis-explainer{position:static}
+}
+@media(max-width:620px){
+  .new-analysis-grid>section h1{font-size:41px}
+  .new-project-secondary{grid-template-columns:1fr}
+}
