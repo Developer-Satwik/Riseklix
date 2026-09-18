@@ -1,11 +1,68 @@
 import { withSupabase } from 'npm:@supabase/server'
+import OpenAI from 'npm:openai'
 
-type ResearchRequest = { project_id?: string }
+type ResearchRequest = { project_id?: string; regenerate?: boolean }
 type CapturedPage = { url: string; title: string | null; description: string | null; snapshot_hash: string; source_role: string }
 
 const MAX_PAGE_BYTES = 500_000
 const MAX_SITEMAP_BYTES = 300_000
 const MAX_PAGES = 8
+
+const INDEX_FALLBACK_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['pages', 'limitations'],
+  properties: {
+    pages: {
+      type: 'array',
+      minItems: 1,
+      maxItems: 8,
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['url','title','description','text_sample','source_role'],
+        properties: {
+          url: { type: 'string' },
+          title: { type: 'string' },
+          description: { type: 'string' },
+          text_sample: { type: 'string' },
+          source_role: { type: 'string', enum: ['homepage_seed','commercial_capability','company_identity','geography_evidence','buyer_context','proof','supporting_page'] },
+        },
+      },
+    },
+    limitations: { type: 'array', items: { type: 'string' } },
+  },
+} as const
+
+class HttpStatusError extends Error {
+  status: number
+  url: string
+  constructor(status: number, url: string) {
+    super('HTTP ' + status)
+    this.status = status
+    this.url = url
+  }
+}
+
+function record(value: unknown) {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
+}
+
+function outputText(response: unknown) {
+  const value = record(response)
+  if (typeof value.output_text === 'string') return value.output_text
+  const output = Array.isArray(value.output) ? value.output : []
+  for (const item of output) {
+    const message = record(item)
+    const parts = Array.isArray(message.content) ? message.content : []
+    for (const part of parts) {
+      const block = record(part)
+      if (typeof block.text === 'string') return block.text
+    }
+  }
+  return ''
+}
+
 
 function json(data: unknown, status = 200) {
   return Response.json(data, { status, headers: { 'Cache-Control': 'no-store' } })
@@ -96,8 +153,10 @@ async function fetchHtml(url: URL, siteHost: string) {
   const response = await fetch(url, {
     redirect: 'follow',
     headers: {
-      'User-Agent': 'RiseklixResearchBot/0.2 (+commercial-discovery)',
-      Accept: 'text/html,application/xhtml+xml',
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36 RiseklixResearch/0.3',
+      Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+      'Accept-Language': 'en-US,en;q=0.9',
+      'Cache-Control': 'no-cache',
     },
     signal: AbortSignal.timeout(15_000),
   })
@@ -105,7 +164,7 @@ async function fetchHtml(url: URL, siteHost: string) {
   const finalUrl = new URL(response.url || url.toString())
   assertSameSite(finalUrl, siteHost)
   const contentType = response.headers.get('content-type') ?? ''
-  if (!response.ok) throw new Error(`HTTP ${response.status}`)
+  if (!response.ok) throw new HttpStatusError(response.status, finalUrl.toString())
   if (!contentType.includes('text/html') && !contentType.includes('application/xhtml+xml')) throw new Error(`Unsupported content type: ${contentType || 'unknown'}`)
 
   const html = await readLimitedText(response, MAX_PAGE_BYTES)
@@ -134,7 +193,7 @@ async function sitemapLinks(base: URL, siteHost: string) {
     const sitemap = new URL('/sitemap.xml', base)
     const response = await fetch(sitemap, {
       redirect: 'follow',
-      headers: { 'User-Agent': 'RiseklixResearchBot/0.2 (+commercial-discovery)', Accept: 'application/xml,text/xml,text/plain' },
+      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/152.0.0.0 Safari/537.36 RiseklixResearch/0.3', Accept: 'application/xml,text/xml,text/plain', 'Accept-Language': 'en-US,en;q=0.9' },
       signal: AbortSignal.timeout(10_000),
     })
     if (!response.ok) return [] as URL[]
@@ -205,6 +264,59 @@ function sourceRole(url: URL) {
   if (/(industr|sector|market|use-case|application)/.test(path)) return 'buyer_context'
   if (/(case-stud|project|client|customer|portfolio)/.test(path)) return 'proof'
   return 'supporting_page'
+}
+
+async function indexedFirstPartyFallback(domain: string, siteHost: string, directStatus: number) {
+  const apiKey = Deno.env.get('OPENAI_API_KEY')
+  if (!apiKey) throw new Error('The website blocks direct automated research (HTTP ' + directStatus + ') and the indexed-web fallback requires OPENAI_API_KEY.')
+
+  const model = Deno.env.get('RISEKLIX_CRAWL_FALLBACK_MODEL') || 'gpt-5.6-luna'
+  const openai = new OpenAI({ apiKey })
+  const response = await openai.responses.create({
+    model,
+    reasoning: { effort: 'none' },
+    tools: [{ type: 'web_search_preview', search_context_size: 'medium' }],
+    tool_choice: 'required',
+    include: ['web_search_call.action.sources'],
+    instructions: `You are the fallback company-evidence collector for Riseklix.
+
+The target company's website refused direct automated fetching. Use web search only to recover evidence from FIRST-PARTY URLs on the exact target domain.
+
+Rules:
+1. Include only URLs whose hostname is the target domain or its www variant.
+2. Prefer the homepage plus commercial capability, about/company, services/products, location/contact, case-study/proof, audience/use-case and pricing/business-model pages.
+3. Do not include third-party profiles, social media, directories or news sites.
+4. text_sample must be a concise evidence summary grounded only in the surfaced first-party page/snippet. Do not invent facts.
+5. If a fact cannot be verified through indexed evidence, omit it and add a limitation.
+6. This is an indexed-web fallback, not a direct crawl. Do not imply the page was fetched directly.
+7. Return a small high-signal set; duplicate URLs are not useful.`,
+    input: 'Target domain: ' + domain + '\nResearch only first-party URLs on this domain.',
+    text: {
+      format: {
+        type: 'json_schema',
+        name: 'riseklix_indexed_first_party_fallback',
+        strict: true,
+        schema: INDEX_FALLBACK_SCHEMA,
+      },
+    },
+  })
+
+  const raw = outputText(response)
+  if (!raw) throw new Error('Indexed-web fallback returned no structured evidence')
+  const parsed = JSON.parse(raw) as { pages: Array<{ url: string; title: string; description: string; text_sample: string; source_role: string }>; limitations: string[] }
+
+  const pages = parsed.pages.filter((page) => {
+    try {
+      const url = new URL(page.url)
+      return ['http:','https:'].includes(url.protocol) && normalizedHost(url.hostname) === siteHost
+    } catch {
+      return false
+    }
+  })
+
+  if (!pages.length) throw new Error('The website blocks direct automated research (HTTP ' + directStatus + '), and the indexed-web fallback found no usable first-party pages.')
+
+  return { pages, limitations: parsed.limitations, model }
 }
 
 const handler = {
