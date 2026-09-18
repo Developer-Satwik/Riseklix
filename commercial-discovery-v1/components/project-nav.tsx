@@ -15,6 +15,8 @@ const stages = [
 export function ProjectNav({ projectId }: { projectId: string }) {
   const pathname = usePathname()
 
+  if (pathname.includes('/processing')) return null
+
   return (
     <div className="project-journey-shell">
       <nav className="project-journey" aria-label="Project workflow">
@@ -30,6 +32,13 @@ export function ProjectNav({ projectId }: { projectId: string }) {
         })}
       </nav>
       <div className="project-utility-nav">
+        <Link
+          href={`/projects/${projectId}/report`}
+          className={pathname.includes('/report') ? 'project-profile-link active' : 'project-profile-link'}
+          aria-current={pathname.includes('/report') ? 'page' : undefined}
+        >
+          Report
+        </Link>
         <Link
           href={`/projects/${projectId}/method`}
           className={pathname.includes('/method') ? 'project-profile-link active' : 'project-profile-link'}
