@@ -44,8 +44,8 @@ export default async function WhyPage({ params, searchParams }: { params: Promis
         </div>
       </section>
 
-      {error && <div className="form-alert error">{error}</div>}
-      {message && <div className="form-alert success">{message}</div>}
+      {error && <div className="form-alert error" role="alert">{error}</div>}
+      {message && <div className="form-alert success" role="status" aria-live="polite">{message}</div>}
 
       <section className={`why-engine-state ${evaluableBenchmark ? 'ready' : ''}`}>
         <div>
