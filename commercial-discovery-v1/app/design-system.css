@@ -628,3 +628,91 @@ button:disabled{cursor:not-allowed}
   .profile-editor>summary{display:block}
   .profile-editor>summary span{display:block;margin-top:3px}
 }
+
+
+/* Buyer Situations — commercial decisions first, research machinery second */
+.intent-summary-strip{
+  display:grid;grid-template-columns:repeat(4,1fr);
+  border-top:1px solid var(--border);border-bottom:1px solid var(--border);
+  margin:0 0 18px
+}
+.intent-summary-strip>div{padding:14px 14px 14px 0;border-right:1px solid var(--border)}
+.intent-summary-strip>div+div{padding-left:14px}
+.intent-summary-strip>div:last-child{border-right:0}
+.intent-summary-strip span,.intent-summary-strip strong{display:block}
+.intent-summary-strip span{font-size:9px;color:var(--subtle)}
+.intent-summary-strip strong{font:400 23px var(--serif);margin-top:9px}
+
+.review-intents>article{
+  background:rgba(20,20,22,.72);
+  border-color:var(--border);
+  box-shadow:none;
+}
+.review-intents>article:hover{border-color:var(--border-strong)}
+.intent-meta{gap:5px;flex-wrap:wrap}
+.intent-meta span{
+  border-color:#343239!important;
+  color:var(--subtle)!important;
+  background:#151517
+}
+.intent-details{
+  margin-top:14px;padding:0;border:1px solid var(--border);border-radius:9px;overflow:hidden
+}
+.intent-details>summary{
+  padding:11px 12px;color:var(--muted);font-size:11px!important;
+  list-style:none;cursor:pointer
+}
+.intent-details>summary::-webkit-details-marker{display:none}
+.intent-details[open]>summary{border-bottom:1px solid var(--border);background:#151517}
+.intent-details>p,.intent-details>.intent-detail-columns{padding-left:12px;padding-right:12px}
+.intent-detail-columns{padding-bottom:12px}
+.intent-actions{margin-top:14px}
+.intent-actions button{min-height:36px!important}
+.intent-actions button.reject{color:#d09285}
+
+.intent-workbench{margin-top:16px;border-top:1px solid var(--border);padding-top:14px}
+.intent-workbench-summary{
+  display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px
+}
+.intent-workbench-summary>div{
+  border:1px solid var(--border);background:#101012;border-radius:8px;padding:10px 11px
+}
+.intent-workbench-summary span,.intent-workbench-summary strong{display:block}
+.intent-workbench-summary span{font-size:9px;color:var(--subtle)}
+.intent-workbench-summary strong{font-size:11px;margin-top:4px}
+
+.workflow-disclosure{
+  border:1px solid var(--border);border-radius:9px;background:#101012;margin-top:7px;overflow:hidden
+}
+.workflow-disclosure>summary{
+  list-style:none;display:flex;align-items:center;justify-content:space-between;gap:18px;
+  padding:13px 14px;cursor:pointer
+}
+.workflow-disclosure>summary::-webkit-details-marker{display:none}
+.workflow-disclosure>summary>span:first-child{display:grid;gap:2px}
+.workflow-disclosure>summary strong{font-size:12px}
+.workflow-disclosure>summary small{font-size:10px;color:var(--subtle);font-weight:400}
+.workflow-disclosure>summary>span:last-child{
+  min-width:28px;height:28px;border-radius:999px;border:1px solid var(--border);
+  display:grid;place-items:center;font:9px var(--mono);color:var(--subtle)
+}
+.workflow-disclosure[open]>summary{background:#151517;border-bottom:1px solid var(--border)}
+.workflow-disclosure[open]>summary>span:last-child{border-color:#5e533e;color:var(--gold)}
+.workflow-disclosure .competitor-section,.workflow-disclosure .prompt-section{
+  margin:0;padding:15px;border:0;background:transparent
+}
+.competitor-heading,.prompt-heading{align-items:flex-start}
+.competitor-heading h3,.prompt-heading h3{font-size:22px!important}
+.competitor-heading p,.prompt-heading p{font-size:11px!important}
+.competitor-list{grid-template-columns:repeat(2,minmax(0,1fr))!important}
+.competitor-card{background:#141416!important;border-color:var(--border)!important}
+.prompt-card{background:#141416!important;border-color:var(--border)!important}
+.prompt-card p{font-size:12px!important;line-height:1.55!important}
+
+@media(max-width:760px){
+  .intent-summary-strip{grid-template-columns:1fr 1fr}
+  .intent-summary-strip>div:nth-child(2){border-right:0}
+  .intent-summary-strip>div:nth-child(n+3){border-top:1px solid var(--border)}
+  .intent-workbench-summary,.competitor-list{grid-template-columns:1fr!important}
+  .workflow-disclosure>summary{align-items:flex-start}
+}
