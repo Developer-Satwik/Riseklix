@@ -127,3 +127,32 @@
   .profile-menu-popover{position:fixed;left:12px;right:12px;top:72px;bottom:auto;width:auto}
   .support-actions{width:100%;flex-direction:column}
 }
+
+
+/* Expanded legal documents */
+.legal-document-wide{max-width:920px}
+.legal-document section[id]{scroll-margin-top:24px}
+.legal-document h3{font:400 16px/1.25 var(--serif);margin:19px 0 7px;color:#c9c2b8}
+.legal-document ul{margin:10px 0 0;padding-left:20px;color:#8f8a82}
+.legal-document li{font-size:11px;line-height:1.7;margin:5px 0}
+.legal-document p a,.legal-document li a{color:#c9c2b7;text-decoration:underline;text-underline-offset:3px}
+.legal-summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:1px;border:1px solid var(--border);border-radius:12px;overflow:hidden;background:var(--border);margin:26px 0 34px}
+.legal-summary>div{background:#111113;padding:16px}
+.legal-summary span{display:block;font-size:7px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:var(--amber)}
+.legal-summary p{margin:8px 0 0!important;font-size:9px!important;line-height:1.55!important;color:#817c74!important}
+.legal-toc{margin:0 0 42px;padding:18px;border:1px solid #252529;border-radius:11px;background:#0f0f10}
+.legal-toc>strong{display:block;font-size:8px;letter-spacing:.11em;text-transform:uppercase;color:#77726b;margin-bottom:13px}
+.legal-toc>div{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 28px}
+.legal-toc a{font-size:9px;color:#8c877f;padding:7px 0;border-bottom:1px solid #1e1e21}
+.legal-toc a:hover{color:#d5cec4}
+.legal-document section[id]{border-top:1px solid #26262a;padding-top:24px;margin-top:30px}
+.legal-document section[id]:first-of-type{margin-top:0}
+.legal-contact-card{margin:14px 0 18px;padding:14px 16px;border:1px solid var(--border);border-radius:9px;background:#111113;display:grid;gap:4px;max-width:440px}
+.legal-contact-card strong{font:400 18px var(--serif);color:#d9d2c8}
+.legal-contact-card span{font-size:8px;letter-spacing:.08em;text-transform:uppercase;color:#69655f}
+.legal-contact-card a{font-size:10px;color:#bdb6ac;text-decoration:none}
+@media(max-width:720px){
+  .legal-summary{grid-template-columns:1fr}
+  .legal-toc>div{grid-template-columns:1fr}
+  .legal-document h1{font-size:46px}
+}
