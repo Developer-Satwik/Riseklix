@@ -1,5 +1,6 @@
 import Link from 'next/link'
 import { createProject } from './actions'
+import { PendingButton } from '@/components/pending-button'
 
 export default async function NewProjectPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const params = await searchParams
@@ -37,7 +38,7 @@ export default async function NewProjectPage({ searchParams }: { searchParams: P
                 <input name="industry" placeholder="e.g. industrial access equipment" />
               </label>
             </div>
-            <button type="submit">Start company research <span aria-hidden="true">→</span></button>
+            <PendingButton pendingLabel="Creating workspace…">Start company research <span aria-hidden="true">→</span></PendingButton>
             <small className="form-trust-note">You will review the Company Intelligence Profile before Buyer Situations are generated.</small>
           </form>
         </section>
