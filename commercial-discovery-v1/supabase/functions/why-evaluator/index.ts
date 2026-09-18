@@ -37,6 +37,30 @@ const WHY_SCHEMA = {
   },
 } as const
 
+async function continueAutopilot(req: Request, projectId: string) {
+  const authHeader = req.headers.get('Authorization')
+  const supabaseUrl = Deno.env.get('SUPABASE_URL')
+  const anonKey = Deno.env.get('SUPABASE_ANON_KEY')
+  if (!authHeader || !supabaseUrl) return
+
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    Authorization: authHeader,
+  }
+  if (anonKey) headers.apikey = anonKey
+
+  try {
+    await fetch(supabaseUrl + '/functions/v1/auto-analysis-runner', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ project_id: projectId }),
+      signal: AbortSignal.timeout(120_000),
+    })
+  } catch {
+    // The current findings remain durable for a later retry.
+  }
+}
+
 function json(data: unknown, status = 200) {
   return Response.json(data, { status, headers: { 'Cache-Control': 'no-store' } })
 }
@@ -335,6 +359,8 @@ const handler = {
 
     const currentCount = await ctx.supabase.from('findings').select('id', { count: 'exact', head: true }).eq('benchmark_id', benchmark.id).eq('is_current', true)
     const complete = (currentCount.count ?? 0) >= intentIds.length
+
+    await continueAutopilot(req, project.id)
 
     return json({ benchmark_id: benchmark.id, generated, skipped, current_findings: currentCount.count ?? 0, intents_with_captures: intentIds.length, complete })
   }),
