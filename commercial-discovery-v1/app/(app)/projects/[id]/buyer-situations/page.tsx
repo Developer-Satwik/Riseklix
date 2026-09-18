@@ -33,6 +33,9 @@ export default async function BuyerSituationsPage({ params, searchParams }: { pa
   const unlocked = profile?.status === 'approved'
   const approvedCount = intents?.filter((intent) => intent.status === 'approved').length ?? 0
   const candidateCount = intents?.filter((intent) => intent.status === 'candidate').length ?? 0
+  const latestJobError = latestJob?.error && typeof latestJob.error === 'object' && !Array.isArray(latestJob.error) && typeof (latestJob.error as Record<string, unknown>).message === 'string'
+    ? String((latestJob.error as Record<string, unknown>).message)
+    : null
 
   return (
     <div className="project-page">
@@ -54,6 +57,7 @@ export default async function BuyerSituationsPage({ params, searchParams }: { pa
           <h2>{unlocked ? 'Company context approved. Intent generation is unlocked.' : 'Approve Company Intelligence first.'}</h2>
           <p>{unlocked ? `${approvedCount} approved · ${candidateCount} awaiting review. AI-suggested situations remain candidates until you approve them.` : 'Riseklix will not generate confident-looking prompts from an unapproved understanding of the business.'}</p>
           {latestJob && <div className="job-line"><span>{latestJob.status}</span><span>{latestJob.stage ?? 'queued'}</span><span>{latestJob.progress}%</span></div>}
+          {latestJob?.status === 'failed' && latestJobError && <div className="inline-job-error" role="alert">{latestJobError}</div>}
         </div>
         {unlocked ? (
           <form action={generateBuyerIntents} className="intent-generate-form">
