@@ -6,7 +6,30 @@ import { createClient } from '@/lib/supabase/server'
 
 const schema = z.object({ project_id: z.string().uuid() })
 const runSchema = schema.extend({ benchmark_id: z.string().uuid() })
+const providerRunSchema = runSchema.extend({ provider: z.enum(['google','anthropic','perplexity']) })
 const recheckSchema = schema.extend({ baseline_id: z.string().uuid() })
+
+async function edgeFunctionErrorMessage(error: unknown) {
+  const candidate = error as { message?: string; context?: unknown } | null
+  const fallback = candidate?.message || 'Observation request failed'
+  const context = candidate?.context
+
+  if (context instanceof Response) {
+    try {
+      const payload = await context.clone().json() as { error?: string; message?: string }
+      return payload?.message || payload?.error || fallback
+    } catch {
+      try {
+        const body = await context.clone().text()
+        return body || fallback
+      } catch {
+        return fallback
+      }
+    }
+  }
+
+  return fallback
+}
 
 async function auth() {
   const supabase = await createClient()
@@ -91,25 +114,86 @@ export async function createBaselinePanel(formData: FormData) {
     redirect(`/projects/${project.id}/recheck?error=${encodeURIComponent(memberError.message)}`)
   }
 
-  const { error: surfaceError } = await supabase.from('benchmark_surfaces').insert({
-    workspace_id: project.workspace_id,
-    project_id: project.id,
-    benchmark_id: benchmark.id,
-    provider: 'openai',
-    surface: 'openai_responses_web_search',
-    model_label: null,
-    enabled: true,
-    status: 'draft',
-    expected_runs: selected.length * repetitions,
-    captured_runs: 0,
-    error_runs: 0,
-    metadata: {
-      display_name: 'OpenAI Responses API · free-plan proxy',
-      methodology_note: 'Defaults to GPT-5.6 Luna with no reasoning and automatic web-search tool use to approximate a typical ChatGPT Free interaction. This remains an API surface, not the ChatGPT consumer application.',
-      consumer_equivalence: 'approximate',
-      model_resolved_at_run: true,
+  const surfaceRows = [
+    {
+      workspace_id: project.workspace_id,
+      project_id: project.id,
+      benchmark_id: benchmark.id,
+      provider: 'openai',
+      surface: 'openai_responses_web_search',
+      model_label: null,
+      enabled: true,
+      status: 'draft',
+      expected_runs: selected.length * repetitions,
+      captured_runs: 0,
+      error_runs: 0,
+      metadata: {
+        display_name: 'OpenAI · free-plan proxy',
+        methodology_note: 'Defaults to GPT-5.6 Luna with no explicit reasoning and automatic web search. This is an API approximation of a typical ChatGPT Free interaction, not the ChatGPT consumer UI itself.',
+        consumer_equivalence: 'approximate',
+        model_resolved_at_run: true,
+      },
     },
-  })
+    {
+      workspace_id: project.workspace_id,
+      project_id: project.id,
+      benchmark_id: benchmark.id,
+      provider: 'google',
+      surface: 'gemini_generate_content_google_search',
+      model_label: null,
+      enabled: true,
+      status: 'draft',
+      expected_runs: selected.length * repetitions,
+      captured_runs: 0,
+      error_runs: 0,
+      metadata: {
+        display_name: 'Gemini · Flash API proxy',
+        methodology_note: 'Gemini GenerateContent API with Google Search grounding. Kept separate from the Gemini consumer application.',
+        consumer_equivalence: 'approximate',
+        model_resolved_at_run: true,
+      },
+    },
+    {
+      workspace_id: project.workspace_id,
+      project_id: project.id,
+      benchmark_id: benchmark.id,
+      provider: 'anthropic',
+      surface: 'anthropic_messages_web_search',
+      model_label: null,
+      enabled: true,
+      status: 'draft',
+      expected_runs: selected.length * repetitions,
+      captured_runs: 0,
+      error_runs: 0,
+      metadata: {
+        display_name: 'Claude · Sonnet API proxy',
+        methodology_note: 'Anthropic Messages API with server-side web search. Kept separate from the Claude consumer application.',
+        consumer_equivalence: 'approximate',
+        model_resolved_at_run: true,
+      },
+    },
+    {
+      workspace_id: project.workspace_id,
+      project_id: project.id,
+      benchmark_id: benchmark.id,
+      provider: 'perplexity',
+      surface: 'perplexity_sonar',
+      model_label: null,
+      enabled: true,
+      status: 'draft',
+      expected_runs: selected.length * repetitions,
+      captured_runs: 0,
+      error_runs: 0,
+      metadata: {
+        display_name: 'Perplexity · Sonar API',
+        methodology_note: 'Perplexity Sonar web-grounded API surface. It is not represented as the consumer Standard plan or its internal router.',
+        consumer_equivalence: 'approximate',
+        model_resolved_at_run: true,
+      },
+    },
+  ]
+
+  const { error: surfaceError } = await supabase.from('benchmark_surfaces').insert(surfaceRows)
 
   if (surfaceError) {
     await supabase.from('benchmarks').delete().eq('id', benchmark.id)
@@ -127,7 +211,7 @@ export async function createBaselinePanel(formData: FormData) {
     event_type: 'baseline_panel_created',
     entity_type: 'benchmark',
     entity_id: benchmark.id,
-    payload: { prompt_count: selected.length, intent_count: eligible.length, languages, configured_surfaces: ['openai_responses_web_search'] },
+    payload: { prompt_count: selected.length, intent_count: eligible.length, languages, configured_surfaces: surfaceRows.map((surface) => surface.surface) },
   })
 
   await supabase.from('projects').update({ status: 'running', updated_at: new Date().toISOString() }).eq('id', project.id)
@@ -151,7 +235,10 @@ export async function runOpenAIObservationBatch(formData: FormData) {
     },
   })
 
-  if (error) redirect(`/projects/${parsed.data.project_id}/recheck?error=${encodeURIComponent(error.message)}`)
+  if (error) {
+    const detail = await edgeFunctionErrorMessage(error)
+    redirect(`/projects/${parsed.data.project_id}/recheck?error=${encodeURIComponent(detail)}`)
+  }
   if (data?.error) {
     const message = data.error === 'observation_provider_not_configured'
       ? 'The OpenAI observation runner is deployed, but OPENAI_API_KEY is not configured in Supabase Edge Function secrets.'
@@ -311,4 +398,47 @@ export async function createPostChangeRecheck(formData: FormData) {
   ])
 
   redirect('/projects/' + project.id + '/recheck?message=' + encodeURIComponent('Post-change recheck v' + nextVersion + ' created from the frozen baseline panel'))
+}
+
+
+export async function runProviderObservationBatch(formData: FormData) {
+  const parsed = providerRunSchema.safeParse({
+    project_id: formData.get('project_id'),
+    benchmark_id: formData.get('benchmark_id'),
+    provider: formData.get('provider'),
+  })
+  if (!parsed.success) redirect('/projects?error=Invalid+provider+observation+request')
+
+  const { supabase } = await auth()
+  const { data, error } = await supabase.functions.invoke('provider-observation-runner', {
+    body: {
+      project_id: parsed.data.project_id,
+      benchmark_id: parsed.data.benchmark_id,
+      provider: parsed.data.provider,
+      max_runs: 3,
+    },
+  })
+
+  if (error) {
+    const detail = await edgeFunctionErrorMessage(error)
+    redirect('/projects/' + parsed.data.project_id + '/recheck?error=' + encodeURIComponent(detail))
+  }
+
+  if (data?.error) {
+    redirect('/projects/' + parsed.data.project_id + '/recheck?error=' + encodeURIComponent(String(data.message || data.error)))
+  }
+
+  const captured = Number(data?.captured ?? 0)
+  const failed = Number(data?.failed ?? 0)
+  const remaining = Number(data?.remaining ?? 0)
+  const label = parsed.data.provider === 'google' ? 'Gemini' : parsed.data.provider === 'anthropic' ? 'Claude' : 'Perplexity'
+  const message = data?.surface_complete
+    ? label + ' observation surface complete. ' + Number(data?.total_captured ?? data?.captured ?? 0) + ' captures stored.' + (data?.benchmark_complete ? ' Benchmark complete.' : '')
+    : label + ' batch stored: ' + captured + ' captured, ' + failed + ' failed, ' + remaining + ' remaining.'
+
+  if (data?.benchmark_complete) {
+    await supabase.from('projects').update({ status: 'complete', updated_at: new Date().toISOString() }).eq('id', parsed.data.project_id)
+  }
+
+  redirect('/projects/' + parsed.data.project_id + '/recheck?message=' + encodeURIComponent(message))
 }
