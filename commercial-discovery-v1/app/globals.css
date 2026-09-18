@@ -441,3 +441,30 @@ html[data-sidebar-collapsed="true"] .workspace-sidebar nav a[data-tooltip]:focus
   .sidebar-header .wordmark strong{display:none!important}
   .profile-menu-popover{position:fixed!important;left:12px!important;right:12px!important;top:68px!important;width:auto!important}
 }
+
+
+/* Sidebar toggle placement correction */
+.sidebar-header{padding-right:34px}
+.sidebar-collapse-button{
+  right:4px!important;
+  top:1px!important;
+  transform:none!important;
+  box-shadow:none!important;
+}
+.sidebar-collapse-button:hover{transform:none!important}
+html[data-sidebar-collapsed="true"] .sidebar-header{
+  padding-right:0!important;
+  grid-template-rows:auto auto;
+  row-gap:10px;
+}
+html[data-sidebar-collapsed="true"] .sidebar-collapse-button{
+  position:static!important;
+  right:auto!important;
+  top:auto!important;
+  margin:0!important;
+  justify-self:center;
+}
+html[data-sidebar-collapsed="true"] .sidebar-collapse-button svg{transform:scaleX(-1)}
+@media(max-width:900px){
+  .sidebar-header{padding-right:0}
+}
