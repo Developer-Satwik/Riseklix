@@ -1690,3 +1690,20 @@ button[aria-busy="true"]>span:last-child{display:inline-flex;align-items:center}
   .workspace-sidebar .sidebar-logo-link strong{display:block;font-size:9px}
   .workspace-sidebar .sidebar-product{display:none}
 }
+
+
+.question-surface-chips{
+  display:flex;
+  gap:5px;
+  flex-wrap:wrap;
+  margin-top:9px;
+}
+.question-surface-chips span{
+  font-size:8px;
+  letter-spacing:.055em;
+  color:var(--subtle);
+  border:1px solid var(--border);
+  border-radius:999px;
+  padding:4px 6px;
+  background:#101012;
+}
