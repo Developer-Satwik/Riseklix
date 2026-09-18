@@ -1,12 +1,7 @@
 import type { Metadata } from 'next'
 import './globals.css'
 import './research.css'
-import './competitors.css'
-import './prompts.css'
-import './benchmarks.css'
-import './observations.css'
-import './why.css'
-import './fixes.css'
+import './design-system.css'
 
 export const metadata: Metadata = {
   title: 'Riseklix — AI Commercial Discovery',
