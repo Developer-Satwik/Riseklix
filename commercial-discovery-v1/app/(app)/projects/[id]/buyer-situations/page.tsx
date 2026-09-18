@@ -43,8 +43,8 @@ export default async function BuyerSituationsPage({ params, searchParams }: { pa
         </div>
       </section>
 
-      {error && <div className="form-alert error">{error}</div>}
-      {message && <div className="form-alert success">{message}</div>}
+      {error && <div className="form-alert error" role="alert">{error}</div>}
+      {message && <div className="form-alert success" role="status" aria-live="polite">{message}</div>}
 
       <section className={`intent-engine-state ${unlocked ? 'unlocked' : ''}`}>
         <div>
