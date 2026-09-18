@@ -57,8 +57,8 @@ export default async function FixesPage({ params, searchParams }: { params: Prom
         </div>
       </section>
 
-      {error && <div className="form-alert error">{error}</div>}
-      {message && <div className="form-alert success">{message}</div>}
+      {error && <div className="form-alert error" role="alert">{error}</div>}
+      {message && <div className="form-alert success" role="status" aria-live="polite">{message}</div>}
 
       {!!pendingBlueprints.length && (
         <section className="blueprint-queue">
