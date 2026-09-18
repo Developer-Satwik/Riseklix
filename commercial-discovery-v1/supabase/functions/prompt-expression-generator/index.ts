@@ -49,6 +49,36 @@ function uniqueExpressions(expressions: Expression[]) {
   })
 }
 
+function normalizedText(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim()
+}
+
+function companyAliases(companyName: string, projectName: string, domain: string) {
+  const raw = [
+    companyName,
+    projectName,
+    ...companyName.split(/\s*(?:\/|\||&|\band\b)\s*/i),
+    ...projectName.split(/\s*(?:\/|\||&|\band\b)\s*/i),
+    domain.split('.')[0]?.replace(/[-_]+/g, ' '),
+  ]
+  const seen = new Set<string>()
+  return raw
+    .map((item) => item?.trim())
+    .filter((item): item is string => Boolean(item))
+    .map((item) => ({ raw: item, normalized: normalizedText(item) }))
+    .filter((item) => item.normalized.length >= 4)
+    .filter((item) => {
+      if (seen.has(item.normalized)) return false
+      seen.add(item.normalized)
+      return true
+    })
+}
+
+function containsCompanyAlias(text: string, aliases: Array<{ raw: string; normalized: string }>) {
+  const normalized = normalizedText(text)
+  return aliases.some((alias) => normalized.includes(alias.normalized))
+}
+
 const handler = {
   fetch: withSupabase({ auth: 'user' }, async (req, ctx) => {
     if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405)
@@ -84,7 +114,13 @@ const handler = {
     const enabled = Array.isArray(project.enabled_languages) ? project.enabled_languages.filter((item): item is string => typeof item === 'string' && item.trim().length > 0) : []
     const languages = Array.from(new Set(enabled.length ? enabled : [project.primary_language || 'English'])).slice(0, 4)
     const model = Deno.env.get('RISEKLIX_PROMPT_MODEL') || 'gpt-5.6-luna'
-    const idempotencyKey = `prompt-expression:${intent.id}:v${intent.version}:${languages.join(',')}:${model}`
+    const aliases = companyAliases(profile.company_name, project.name, project.domain)
+    const aidedAliasInstruction = aliases
+      .filter((item) => item.normalized !== normalizedText(project.domain.split('.')[0] || ''))
+      .slice(0, 4)
+      .map((item) => item.raw)
+      .join(' | ')
+    const idempotencyKey = `prompt-expression:${intent.id}:v${intent.version}:${languages.join(',')}:${model}:aliases-v2`
 
     if (!body.regenerate) {
       const existing = await ctx.supabase
@@ -172,25 +208,42 @@ const handler = {
       const response = await openai.responses.create({
         model,
         reasoning: { effort: 'none' },
-        instructions: `You are the Prompt Expression Generator for Riseklix Commercial Discovery.\n\nThe Buyer Intent is already approved. Your job is only to express that same commercial situation in natural buyer language for controlled AI observation.\n\nRules:\n1. Do not create a new commercial intent or change the buying decision.\n2. Generate EXACTLY two UNAIDED buyer questions and one AIDED brand-check question per enabled language.\n3. Every question must sound like something a normal buyer could genuinely type into ChatGPT, Gemini, Claude or Perplexity. One clear sentence is preferred.\n4. Use plain language. Avoid internal terms such as buyer intent, required capability, hard constraint, evidence set, commercial model, provider universe or benchmark.\n5. UNAIDED means the target company name and domain must NOT appear. Ask naturally for providers, options, a shortlist, comparison or recommendation.\n6. The two unaided questions should preserve the same decision but differ naturally: one can be broad discovery and one can foreground the most commercially important constraint.\n7. AIDED means name the target company and ask whether it is a credible fit for that same buying situation and why. Do not instruct the model to recommend it.\n8. Do not mention AEO, GEO, AI visibility, prompt tracking, testing or Riseklix.\n9. Preserve every hard constraint, but integrate it naturally instead of dumping a checklist.\n10. Do not insert competitor names in either mode.\n11. Language variants must preserve intent equivalence, not literal translation.\n12. Keep each question self-contained because every model run starts in a fresh session.`,
-        input: `Target company: ${profile.company_name}\nMarket: ${project.market}\nEnabled languages: ${languages.join(', ')}\nApproved Buyer Intent:\n${JSON.stringify(intent)}`,
+        instructions: `You are the Prompt Expression Generator for Riseklix Commercial Discovery.\n\nThe Buyer Intent is already approved. Your job is only to express that same commercial situation in natural buyer language for controlled AI observation.\n\nRules:\n1. Do not create a new commercial intent or change the buying decision.\n2. Generate EXACTLY two UNAIDED buyer questions and one AIDED brand-check question per enabled language.\n3. Every question must sound like something a normal buyer could genuinely type into ChatGPT, Gemini, Claude or Perplexity. One clear sentence is preferred.\n4. Use plain language. Avoid internal terms such as buyer intent, required capability, hard constraint, evidence set, commercial model, provider universe or benchmark.\n5. UNAIDED means the target company name and domain must NOT appear. Ask naturally for providers, options, a shortlist, comparison or recommendation.\n6. The two unaided questions should preserve the same decision but differ naturally: one can be broad discovery and one can foreground the most commercially important constraint.\n7. AIDED means name the target company and ask whether it is a credible fit for that same buying situation and why. The aided question MUST contain at least one of these exact target identifiers verbatim: ${aidedAliasInstruction}. Do not instruct the model to recommend it.\n8. Do not mention AEO, GEO, AI visibility, prompt tracking, testing or Riseklix.\n9. Preserve every hard constraint, but integrate it naturally instead of dumping a checklist.\n10. Do not insert competitor names in either mode.\n11. Language variants must preserve intent equivalence, not literal translation.\n12. Keep each question self-contained because every model run starts in a fresh session.`,
+        input: `Target company: ${profile.company_name}
+Accepted target identifiers for aided wording: ${aidedAliasInstruction}
+Market: ${project.market}
+Enabled languages: ${languages.join(', ')}
+Approved Buyer Intent:
+${JSON.stringify(intent)}`,
         text: { format: { type: 'json_schema', name: 'riseklix_prompt_expressions', strict: true, schema: RESPONSE_SCHEMA } },
       })
 
       const raw = outputText(response)
       if (!raw) throw new Error('Prompt provider returned no structured output')
       const parsed = JSON.parse(raw) as { summary: string; expressions: Expression[] }
-      const targetName = profile.company_name.toLowerCase()
 
       const expressions = uniqueExpressions(parsed.expressions)
         .filter((item) => languages.includes(item.language))
-        .filter((item) => item.mode !== 'unaided' || !item.prompt_text.toLowerCase().includes(targetName))
-        .filter((item) => item.mode !== 'aided' || item.prompt_text.toLowerCase().includes(targetName))
+        .filter((item) => item.mode !== 'unaided' || !containsCompanyAlias(item.prompt_text, aliases))
+        .filter((item) => item.mode !== 'aided' || containsCompanyAlias(item.prompt_text, aliases))
 
       for (const language of languages) {
         const unaided = expressions.filter((item) => item.language === language && item.mode === 'unaided')
         const aided = expressions.filter((item) => item.language === language && item.mode === 'aided')
-        if (unaided.length < 1 || aided.length < 1) throw new Error(`Prompt generation failed equivalence checks for ${language}`)
+        if (unaided.length !== 2 || aided.length !== 1) {
+          await ctx.supabase.from('research_jobs').update({
+            output: {
+              validation: {
+                language,
+                generated_total: parsed.expressions.filter((item) => item.language === language).length,
+                valid_unaided: unaided.length,
+                valid_aided: aided.length,
+                accepted_target_identifiers: aliases.map((item) => item.raw),
+              },
+            },
+          }).eq('id', job.id)
+          throw new Error(`Question generation produced an invalid ${language} set (expected 2 buyer questions + 1 brand check; got ${unaided.length} + ${aided.length}). Please retry.`)
+        }
       }
 
       if (body.regenerate) {
