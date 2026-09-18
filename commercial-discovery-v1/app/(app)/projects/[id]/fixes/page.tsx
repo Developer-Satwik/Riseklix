@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { approveBlueprint, chooseExecutionRoute, generateBlueprint, updateImplementationTask } from './actions'
+import { PendingButton } from '@/components/pending-button'
 
 function record(value: unknown) {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
@@ -72,7 +73,7 @@ export default async function FixesPage({ params, searchParams }: { params: Prom
                     <input type="hidden" name="project_id" value={id} />
                     <input type="hidden" name="finding_id" value={finding.id} />
                     <input type="hidden" name="regenerate" value="false" />
-                    <button type="submit">Generate Blueprint</button>
+                    <PendingButton pendingLabel="Building Blueprint…">Generate Blueprint</PendingButton>
                   </form>
                 </article>
               )
@@ -132,7 +133,7 @@ export default async function FixesPage({ params, searchParams }: { params: Prom
               {blueprint.status === 'draft' && (
                 <div className="blueprint-approval">
                   <div><strong>Review before execution.</strong><p>Approval confirms the implementation scope—not that every unverified claim in the brief is true.</p></div>
-                  <form action={approveBlueprint}><input type="hidden" name="project_id" value={id} /><input type="hidden" name="blueprint_id" value={blueprint.id} /><button type="submit">Approve Blueprint</button></form>
+                  <form action={approveBlueprint}><input type="hidden" name="project_id" value={id} /><input type="hidden" name="blueprint_id" value={blueprint.id} /><PendingButton pendingLabel="Approving…">Approve Blueprint</PendingButton></form>
                 </div>
               )}
 
@@ -145,7 +146,7 @@ export default async function FixesPage({ params, searchParams }: { params: Prom
                         <input type="hidden" name="project_id" value={id} />
                         <input type="hidden" name="blueprint_id" value={blueprint.id} />
                         <input type="hidden" name="route" value={route} />
-                        <strong>{title}</strong><p>{description}</p><button type="submit">{task?.route === route ? 'Selected' : 'Use this path'}</button>
+                        <strong>{title}</strong><p>{description}</p><PendingButton pendingLabel="Routing…">{task?.route === route ? 'Selected' : 'Use this path'}</PendingButton>
                       </form>
                     ))}
                   </div>
@@ -171,9 +172,9 @@ export default async function FixesPage({ params, searchParams }: { params: Prom
                       </div>
 
                       <div className="delivery-status-actions">
-                        <button name="status" value="in_progress" type="submit" className={task.status === 'in_progress' ? 'active' : ''}>In progress</button>
-                        <button name="status" value="ready_for_review" type="submit" className={task.status === 'ready_for_review' ? 'active' : ''}>Ready for review</button>
-                        <button name="status" value="verified" type="submit" className={task.status === 'verified' ? 'active verified' : 'verified'}>Verify delivery</button>
+                        <PendingButton name="status" value="in_progress" pendingLabel="Updating…" className={task.status === 'in_progress' ? 'active' : ''}>In progress</PendingButton>
+                        <PendingButton name="status" value="ready_for_review" pendingLabel="Updating…" className={task.status === 'ready_for_review' ? 'active' : ''}>Ready for review</PendingButton>
+                        <PendingButton name="status" value="verified" pendingLabel="Verifying…" className={task.status === 'verified' ? 'active verified' : 'verified'}>Verify delivery</PendingButton>
                       </div>
                     </form>
                   )}
