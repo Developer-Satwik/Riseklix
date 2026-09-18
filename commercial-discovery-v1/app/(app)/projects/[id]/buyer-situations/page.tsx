@@ -247,6 +247,9 @@ export default async function BuyerSituationsPage({ params, searchParams }: { pa
                           <div className="eyebrow">EXACT AI QUESTIONS</div>
                           <h3>{intentPrompts.length ? `${approvedPrompts}/${intentPrompts.length} approved` : 'Generate the exact buyer wording after the competitor universe is known.'}</h3>
                           <p><strong>Buyer question</strong> asks for options without naming the client. <strong>Brand check</strong> asks about the same buying decision with the client named. Approved questions are frozen and reused across every enabled model surface so comparisons stay fair.</p>
+                          <div className="question-surface-chips" aria-label="AI surfaces">
+                            <span>OpenAI</span><span>Gemini</span><span>Claude</span><span>Perplexity</span>
+                          </div>
                           {intentPromptJob?.status === 'running' && (
                             <div className="competitor-job-state" role="status" aria-live="polite">
                               <span>Generating</span>
