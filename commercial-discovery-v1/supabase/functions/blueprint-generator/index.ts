@@ -218,6 +218,21 @@ const handler = {
     const firstPartyUrls = new Set(firstPartySources.flatMap((source) => [source.url, source.url.replace(/\/$/, '')]))
 
     const model = Deno.env.get('RISEKLIX_BLUEPRINT_MODEL') || 'gpt-5.6-terra'
+    const budget = await ctx.supabase.rpc('consume_ai_budget', {
+      p_project_id: project.id,
+      p_kind: 'reasoning',
+      p_units: 1,
+    })
+    if (budget.error) return json({ error: 'ai_budget_check_failed', message: budget.error.message }, 500)
+    const budgetState = record(budget.data)
+    if (budgetState.allowed !== true) {
+      return json({
+        error: 'daily_ai_budget_exceeded',
+        message: 'This workspace reached its daily reasoning-model safety limit. Riseklix stopped before making another paid AI request.',
+        usage: budgetState,
+      }, 429)
+    }
+
     const userId = String(ctx.userClaims?.id ?? ctx.jwtClaims?.sub ?? '') || null
     const { data: job, error: jobError } = await ctx.supabase.from('research_jobs').insert({
       workspace_id: project.workspace_id,
