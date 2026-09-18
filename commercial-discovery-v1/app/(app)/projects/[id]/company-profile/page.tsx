@@ -50,13 +50,14 @@ export default async function CompanyProfilePage({ params, searchParams }: { par
         <div>
           <span className="research-state-dot" data-state={job?.status || 'not_started'} aria-hidden="true" />
           <div>
-            <div className="eyebrow">FIRST-PARTY RESEARCH</div>
+            <div className="eyebrow">COMPANY EVIDENCE</div>
             <strong>{job?.status === 'succeeded' ? (sources?.length ?? 0) + ' source' + (sources?.length === 1 ? '' : 's') + ' captured' : job?.status === 'failed' ? 'Latest capture needs attention' : job?.status === 'running' ? 'Research in progress' : 'Not started'}</strong>
-            <small>{job?.stage ? job.stage.replaceAll('_', ' ') : 'Homepage, sitemap and high-value commercial pages'}</small>
+            <small>{job?.stage ? job.stage.replaceAll('_', ' ') : 'Direct company pages first; indexed first-party fallback only if the site blocks automated access'}</small>
           </div>
         </div>
         <form action={runCompanyResearch}>
           <input type="hidden" name="project_id" value={id} />
+          <input type="hidden" name="regenerate" value={job?.status === 'succeeded' ? 'true' : 'false'} />
           <PendingButton pendingLabel="Researching company…">{job?.status === 'succeeded' ? 'Refresh evidence' : 'Run company research'}</PendingButton>
         </form>
       </section>
@@ -141,7 +142,7 @@ export default async function CompanyProfilePage({ params, searchParams }: { par
       {!!sources?.length && (
         <details className="evidence-drawer">
           <summary>
-            <span><strong>Evidence view</strong><small>{sources.length} captured first-party source{sources.length === 1 ? '' : 's'}</small></span>
+            <span><strong>Evidence view</strong><small>{sources.length} captured company source{sources.length === 1 ? '' : 's'}</small></span>
             <span aria-hidden="true">+</span>
           </summary>
           <div className="evidence-list">
