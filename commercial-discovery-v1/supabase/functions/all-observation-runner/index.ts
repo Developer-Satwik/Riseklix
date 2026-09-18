@@ -4,6 +4,30 @@ declare const EdgeRuntime: { waitUntil(promise: Promise<unknown>): void }
 
 type RequestBody = { project_id?: string; benchmark_id?: string }
 
+async function continueAutopilot(req: Request, projectId: string) {
+  const authHeader = req.headers.get('Authorization')
+  const supabaseUrl = Deno.env.get('SUPABASE_URL')
+  const anonKey = Deno.env.get('SUPABASE_ANON_KEY')
+  if (!authHeader || !supabaseUrl) return
+
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    Authorization: authHeader,
+  }
+  if (anonKey) headers.apikey = anonKey
+
+  try {
+    await fetch(supabaseUrl + '/functions/v1/auto-analysis-runner', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ project_id: projectId }),
+      signal: AbortSignal.timeout(120_000),
+    })
+  } catch {
+    // Durable benchmark state allows a later retry.
+  }
+}
+
 function json(data: unknown, status = 200) {
   return Response.json(data, { status, headers: { 'Cache-Control': 'no-store' } })
 }
@@ -182,6 +206,8 @@ const handler = {
       if (complete) {
         await ctx.supabase.from('projects').update({ status: 'complete', updated_at: new Date().toISOString() }).eq('id', project.id)
       }
+
+      await continueAutopilot(req, project.id)
     })().catch(async (error) => {
       const message = error instanceof Error ? error.message : 'Unknown multi-surface observation error'
       await ctx.supabase.from('research_jobs').update({
