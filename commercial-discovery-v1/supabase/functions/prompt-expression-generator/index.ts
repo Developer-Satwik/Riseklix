@@ -192,8 +192,8 @@ const handler = {
     const budgetState = record(budget.data)
     if (budgetState.allowed !== true) {
       return json({
-        error: 'daily_ai_budget_exceeded',
-        message: 'This workspace reached its daily reasoning-model safety limit. Riseklix stopped before making another paid AI request.',
+        error: 'ai_budget_exceeded',
+        message: budgetState.blocked_scope === 'minute' ? 'Riseklix hit the workspace per-minute AI safety limit. The request was stopped before another paid model call.' : 'Riseklix hit the workspace daily AI safety limit. The request was stopped before another paid model call.',
         usage: budgetState,
       }, 429)
     }
