@@ -177,12 +177,15 @@ export async function approveCompanyProfile(formData: FormData) {
   if (!parsed.success) redirect('/projects?error=Invalid+project')
 
   const { supabase, userId } = await authenticatedClient()
-  const { data: profile, error: profileError } = await supabase
-    .from('company_profile_versions')
-    .select('id,workspace_id,company_name,summary')
-    .eq('project_id', parsed.data.project_id)
-    .eq('is_current', true)
-    .single()
+  const [{ data: profile, error: profileError }, { data: project }] = await Promise.all([
+    supabase
+      .from('company_profile_versions')
+      .select('id,workspace_id,company_name,summary')
+      .eq('project_id', parsed.data.project_id)
+      .eq('is_current', true)
+      .single(),
+    supabase.from('projects').select('analysis_mode').eq('id', parsed.data.project_id).single(),
+  ])
 
   if (profileError || !profile) redirect(`/projects/${parsed.data.project_id}/company-profile?error=${encodeURIComponent('Current company profile could not be loaded')}`)
   if (!profile.summary || profile.summary.trim().length < 20) redirect(`/projects/${parsed.data.project_id}/company-profile?error=${encodeURIComponent('Complete the company summary before approval')}`)
@@ -196,7 +199,7 @@ export async function approveCompanyProfile(formData: FormData) {
   if (error) redirect(`/projects/${parsed.data.project_id}/company-profile?error=${encodeURIComponent(error.message)}`)
 
   await Promise.all([
-    supabase.from('projects').update({ name: profile.company_name, status: 'intents_review' }).eq('id', parsed.data.project_id),
+    supabase.from('projects').update({ name: profile.company_name, status: project?.analysis_mode === 'autopilot' ? 'running' : 'intents_review' }).eq('id', parsed.data.project_id),
     supabase.from('audit_events').insert({
       workspace_id: profile.workspace_id,
       project_id: parsed.data.project_id,
@@ -204,9 +207,23 @@ export async function approveCompanyProfile(formData: FormData) {
       event_type: 'company_profile_approved',
       entity_type: 'company_profile',
       entity_id: profile.id,
-      payload: { approved_at: approvedAt },
+      payload: { approved_at: approvedAt, analysis_mode: project?.analysis_mode ?? 'manual' },
     }),
   ])
+
+  if (project?.analysis_mode === 'autopilot') {
+    const { data: autoData, error: autoError } = await supabase.functions.invoke('auto-analysis-runner', {
+      body: { project_id: parsed.data.project_id },
+    })
+
+    if (autoError) {
+      const detail = await edgeFunctionErrorMessage(autoError)
+      redirect('/projects/' + parsed.data.project_id + '/overview?error=' + encodeURIComponent(detail))
+    }
+
+    const stage = String(autoData?.stage || 'starting')
+    redirect('/projects/' + parsed.data.project_id + '/overview?message=' + encodeURIComponent('Company confirmed. AI Autopilot is running the rest of the evaluation · ' + stage.replaceAll('_', ' ')))
+  }
 
   redirect(`/projects/${parsed.data.project_id}/buyer-situations?message=${encodeURIComponent('Company profile approved. Buyer Intent generation is now unlocked.')}`)
 }
