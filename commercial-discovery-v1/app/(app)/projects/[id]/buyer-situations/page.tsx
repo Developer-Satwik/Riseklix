@@ -3,6 +3,7 @@ import { addIntentCandidate, approveIntent, rejectIntent } from './actions'
 import { generateBuyerIntents } from './generate-actions'
 import { discoverCompetitors } from './competitor-actions'
 import { approvePromptExpression, generatePromptExpressions, rejectPromptExpression } from './prompt-actions'
+import { PendingButton } from '@/components/pending-button'
 
 function record(value: unknown) {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
@@ -55,7 +56,7 @@ export default async function BuyerSituationsPage({ params, searchParams }: { pa
         {unlocked ? (
           <form action={generateBuyerIntents} className="intent-generate-form">
             <input type="hidden" name="project_id" value={id} />
-            <button type="submit">{candidateCount ? 'Reuse / generate candidates' : 'Generate Buyer Situations'}</button>
+            <PendingButton pendingLabel="Generating situations…">{candidateCount ? 'Reuse / generate candidates' : 'Generate Buyer Situations'}</PendingButton>
           </form>
         ) : <span>LOCKED</span>}
       </section>
@@ -99,8 +100,8 @@ export default async function BuyerSituationsPage({ params, searchParams }: { pa
 
                 {intent.status === 'candidate' && (
                   <div className="intent-actions">
-                    <form action={approveIntent}><input type="hidden" name="project_id" value={id} /><input type="hidden" name="intent_id" value={intent.id} /><button>Approve</button></form>
-                    <form action={rejectIntent}><input type="hidden" name="project_id" value={id} /><input type="hidden" name="intent_id" value={intent.id} /><button className="reject">Reject</button></form>
+                    <form action={approveIntent}><input type="hidden" name="project_id" value={id} /><input type="hidden" name="intent_id" value={intent.id} /><PendingButton pendingLabel="Approving…">Approve</PendingButton></form>
+                    <form action={rejectIntent}><input type="hidden" name="project_id" value={id} /><input type="hidden" name="intent_id" value={intent.id} /><PendingButton pendingLabel="Rejecting…" className="reject">Reject</PendingButton></form>
                   </div>
                 )}
 
@@ -131,7 +132,7 @@ export default async function BuyerSituationsPage({ params, searchParams }: { pa
                           <input type="hidden" name="project_id" value={id} />
                           <input type="hidden" name="intent_id" value={intent.id} />
                           <input type="hidden" name="regenerate" value={intentCompetitors.length ? 'true' : 'false'} />
-                          <button type="submit">{intentCompetitors.length ? 'Refresh competitor set' : 'Discover competitors'}</button>
+                          <PendingButton pendingLabel="Researching competitors…">{intentCompetitors.length ? 'Refresh competitor set' : 'Discover competitors'}</PendingButton>
                         </form>
                       </div>
 
@@ -185,7 +186,7 @@ export default async function BuyerSituationsPage({ params, searchParams }: { pa
                             <input type="hidden" name="project_id" value={id} />
                             <input type="hidden" name="intent_id" value={intent.id} />
                             <input type="hidden" name="regenerate" value="false" />
-                            <button type="submit">Generate question expressions</button>
+                            <PendingButton pendingLabel="Generating questions…">Generate question expressions</PendingButton>
                           </form>
                         )}
                       </div>
@@ -198,8 +199,8 @@ export default async function BuyerSituationsPage({ params, searchParams }: { pa
                               <p>{prompt.prompt_text}</p>
                               {prompt.status === 'candidate' && !prompt.is_frozen && (
                                 <div className="prompt-actions">
-                                  <form action={approvePromptExpression}><input type="hidden" name="project_id" value={id} /><input type="hidden" name="intent_id" value={intent.id} /><input type="hidden" name="prompt_id" value={prompt.id} /><button type="submit">Approve</button></form>
-                                  <form action={rejectPromptExpression}><input type="hidden" name="project_id" value={id} /><input type="hidden" name="intent_id" value={intent.id} /><input type="hidden" name="prompt_id" value={prompt.id} /><button type="submit" className="reject">Reject</button></form>
+                                  <form action={approvePromptExpression}><input type="hidden" name="project_id" value={id} /><input type="hidden" name="intent_id" value={intent.id} /><input type="hidden" name="prompt_id" value={prompt.id} /><PendingButton pendingLabel="Approving…">Approve</PendingButton></form>
+                                  <form action={rejectPromptExpression}><input type="hidden" name="project_id" value={id} /><input type="hidden" name="intent_id" value={intent.id} /><input type="hidden" name="prompt_id" value={prompt.id} /><PendingButton pendingLabel="Rejecting…" className="reject">Reject</PendingButton></form>
                                 </div>
                               )}
                             </div>
@@ -234,7 +235,7 @@ export default async function BuyerSituationsPage({ params, searchParams }: { pa
             <label className="full">Why this intent exists<textarea name="provenance_reason" placeholder="Derived from verified rental capability and multi-location operating evidence." required /></label>
             <label>Constraints <small>one per line</small><textarea name="constraints" placeholder={'Rental required\nOne supplier preferred\nMulti-location delivery'} /></label>
             <label>Required capabilities <small>one per line</small><textarea name="required_capabilities" placeholder={'Scaffolding rental\nDelivery\nInstallation / support'} /></label>
-            <div className="full manual-intent-actions"><button type="submit">Add candidate intent</button></div>
+            <div className="full manual-intent-actions"><PendingButton pendingLabel="Adding candidate…">Add candidate intent</PendingButton></div>
           </form>
         </details>
       )}
