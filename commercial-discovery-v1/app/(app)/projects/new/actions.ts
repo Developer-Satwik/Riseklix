@@ -9,6 +9,7 @@ const projectSchema = z.object({
   market: z.string().min(2),
   industry: z.string().optional(),
   analysis_mode: z.enum(['manual','autopilot']),
+  primary_language: z.enum(['English', 'Hindi', 'Hinglish']),
 })
 
 function normalizeDomain(input: string) {
@@ -26,6 +27,7 @@ export async function createProject(formData: FormData) {
     market: formData.get('market'),
     industry: formData.get('industry') || undefined,
     analysis_mode: formData.get('analysis_mode') || 'autopilot',
+    primary_language: formData.get('primary_language') || 'English',
   })
 
   if (!parsed.success) redirect('/projects/new?error=Check+the+company+website+and+market')
@@ -53,7 +55,11 @@ export async function createProject(formData: FormData) {
 
   const { error: modeError } = await supabase
     .from('projects')
-    .update({ analysis_mode: parsed.data.analysis_mode })
+    .update({
+      analysis_mode: parsed.data.analysis_mode,
+      primary_language: parsed.data.primary_language,
+      enabled_languages: [parsed.data.primary_language],
+    })
     .eq('id', projectId)
 
   if (modeError) {
