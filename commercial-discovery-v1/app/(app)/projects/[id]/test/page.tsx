@@ -1,7 +1,8 @@
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
-import { createBaselinePanel, runOpenAIObservationBatch, runProviderObservationBatch } from '../recheck/actions'
+import { runApprovedQuestions } from './actions'
 import { PendingButton } from '@/components/pending-button'
+import { ResearchJobWatcher } from '@/components/research-job-watcher'
 
 function record(value: unknown) {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
@@ -12,13 +13,14 @@ export default async function TestPage({ params, searchParams }: { params: Promi
   const query = await searchParams
   const supabase = await createClient()
 
-  const [{ data: benchmarks }, { data: expressions }, { data: memberships }, { data: observations }, { data: surfaces }, { data: intents }] = await Promise.all([
+  const [{ data: benchmarks }, { data: expressions }, { data: memberships }, { data: observations }, { data: surfaces }, { data: intents }, { data: activeRun }] = await Promise.all([
     supabase.from('benchmarks').select('id,benchmark_type,status,version,started_at,completed_at,collection_config,created_at').eq('project_id', id).eq('benchmark_type', 'baseline').order('created_at', { ascending: false }),
     supabase.from('prompt_expressions').select('id,buyer_intent_id,language,mode,variant_no,prompt_text,status,is_frozen').eq('project_id', id).order('buyer_intent_id').order('language').order('mode').order('variant_no'),
     supabase.from('benchmark_prompts').select('benchmark_id,prompt_expression_id,buyer_intent_id').eq('project_id', id),
     supabase.from('observation_runs').select('id,benchmark_id,prompt_expression_id,provider,surface,model_label,repetition,language,run_status,retrieval_status,target_rank,captured_at,metadata,error_message').eq('project_id', id).order('created_at', { ascending: false }),
     supabase.from('benchmark_surfaces').select('id,benchmark_id,provider,surface,model_label,enabled,status,expected_runs,captured_runs,error_runs,metadata,started_at,completed_at').eq('project_id', id).order('created_at'),
     supabase.from('buyer_intents').select('id,title,intent_key,status').eq('project_id', id),
+    supabase.from('research_jobs').select('id,status,stage,progress,created_at').eq('project_id', id).eq('job_type', 'observation_collection').eq('stage', 'multi_surface_observation').eq('status', 'running').order('created_at', { ascending: false }).limit(1).maybeSingle(),
   ])
 
   const error = typeof query.error === 'string' ? query.error : null
@@ -44,6 +46,7 @@ export default async function TestPage({ params, searchParams }: { params: Promi
 
   return (
     <div className="project-page test-page">
+      <ResearchJobWatcher active={Boolean(activeRun)} />
       <section className="page-header compact">
         <div>
           <div className="eyebrow">RUN THE APPROVED QUESTIONS</div>
@@ -64,9 +67,9 @@ export default async function TestPage({ params, searchParams }: { params: Promi
               <p>{eligibleIntentIds.size ? 'Each admitted Buyer Situation has at least one unaided buyer question and one aided brand check. Creating the baseline freezes these exact questions so every AI surface receives the same wording.' : 'A Buyer Situation needs both an approved buyer question and an approved brand check before it can enter the baseline.'}</p>
             </div>
             {eligibleIntentIds.size ? (
-              <form action={createBaselinePanel}>
+              <form action={runApprovedQuestions}>
                 <input type="hidden" name="project_id" value={id} />
-                <PendingButton pendingLabel="Freezing approved questions…">Create baseline & prepare tests</PendingButton>
+                <PendingButton pendingLabel="Starting all AI tests…">Run approved questions</PendingButton>
               </form>
             ) : (
               <Link href={`/projects/${id}/buyer-situations`} className="primary-link">Review buyer questions →</Link>
@@ -133,9 +136,18 @@ export default async function TestPage({ params, searchParams }: { params: Promi
               <div>
                 <div className="eyebrow">BASELINE v{baseline.version} · {baseline.status}</div>
                 <h2>Your approved questions are frozen.</h2>
-                <p>{frozenQuestions.length} exact questions · {benchmarkSurfaces.length} AI surfaces · {typeof config.repetitions_per_expression === 'number' ? config.repetitions_per_expression : 3} repetitions per question. Run each surface until collection is complete.</p>
+                <p>{frozenQuestions.length} exact questions · {benchmarkSurfaces.length} AI surfaces · {typeof config.repetitions_per_expression === 'number' ? config.repetitions_per_expression : 3} repetitions per question. Riseklix runs the same question set across every configured surface automatically.</p>
+                {activeRun && <div className="job-line"><span>running</span><span>all AI surfaces</span><span>{activeRun.progress}%</span></div>}
               </div>
-              <Link href={`/projects/${id}/buyer-situations`} className="quiet-button">View frozen questions</Link>
+              <div className="test-master-actions">
+                <Link href={`/projects/${id}/buyer-situations`} className="quiet-button">View frozen questions</Link>
+                {baseline.status !== 'complete' && (
+                  <form action={runApprovedQuestions}>
+                    <input type="hidden" name="project_id" value={id} />
+                    <PendingButton pendingLabel="Running all AI surfaces…">{activeRun ? 'Tests running…' : 'Run / continue all tests'}</PendingButton>
+                  </form>
+                )}
+              </div>
             </section>
 
             <section className="benchmark-progress test-progress">
@@ -154,8 +166,6 @@ export default async function TestPage({ params, searchParams }: { params: Promi
                 const surfaceUnaided = surfaceCaptured.filter((run) => record(run.metadata).prompt_mode === 'unaided')
                 const surfaceRetrieved = surfaceUnaided.filter((run) => run.retrieval_status === 'retrieved')
                 const meta = record(surfaceConfig.metadata)
-                const isOpenAI = surfaceConfig.provider === 'openai' && surfaceConfig.surface === 'openai_responses_web_search'
-                const canRunProvider = ['google','anthropic','perplexity'].includes(surfaceConfig.provider)
                 const label = surfaceConfig.provider === 'google' ? 'Gemini' : surfaceConfig.provider === 'anthropic' ? 'Claude' : surfaceConfig.provider === 'perplexity' ? 'Perplexity' : 'OpenAI'
 
                 return (
@@ -166,23 +176,6 @@ export default async function TestPage({ params, searchParams }: { params: Promi
                         <h3>{typeof meta.display_name === 'string' ? meta.display_name : `${surfaceConfig.provider} · ${surfaceConfig.surface}`}</h3>
                         <p>{typeof meta.methodology_note === 'string' ? meta.methodology_note : 'Results remain isolated by provider and surface.'}</p>
                       </div>
-
-                      {isOpenAI && surfaceConfig.status !== 'complete' && (
-                        <form action={runOpenAIObservationBatch}>
-                          <input type="hidden" name="project_id" value={id} />
-                          <input type="hidden" name="benchmark_id" value={baseline.id} />
-                          <PendingButton pendingLabel="Running OpenAI questions…">{surfaceConfig.captured_runs ? 'Run next OpenAI batch' : 'Run on OpenAI'}</PendingButton>
-                        </form>
-                      )}
-
-                      {canRunProvider && surfaceConfig.status !== 'complete' && (
-                        <form action={runProviderObservationBatch}>
-                          <input type="hidden" name="project_id" value={id} />
-                          <input type="hidden" name="benchmark_id" value={baseline.id} />
-                          <input type="hidden" name="provider" value={surfaceConfig.provider} />
-                          <PendingButton pendingLabel={`Running ${label} questions…`}>{surfaceConfig.captured_runs ? `Run next ${label} batch` : `Run on ${label}`}</PendingButton>
-                        </form>
-                      )}
                     </div>
 
                     <div className="observation-facts">
