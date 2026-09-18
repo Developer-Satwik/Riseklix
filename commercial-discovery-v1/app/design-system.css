@@ -1415,3 +1415,16 @@ button[aria-busy="true"]>span:last-child{display:inline-flex;align-items:center}
   .brand-wordmark strong{display:none}
   .sidebar-product{display:none}
 }
+
+
+.inline-job-error{
+  margin-top:10px;
+  max-width:760px;
+  border:1px solid #5d342d;
+  background:var(--coral-soft);
+  color:#e5aa9d;
+  border-radius:8px;
+  padding:9px 10px;
+  font-size:10px;
+  line-height:1.5;
+}
