@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { WorkspaceSidebar } from '@/components/workspace-sidebar'
+import { AnalysisCompletionNotifier } from '@/components/analysis-completion-notifier'
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const supabase = await createClient()
@@ -25,13 +26,16 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   if (!profile?.onboarding_completed_at) redirect('/onboarding')
 
   return (
-    <div className="app-frame">
+    <>
+      <AnalysisCompletionNotifier />
+      <div className="app-frame">
       <WorkspaceSidebar
         email={typeof user.email === 'string' ? user.email : 'Signed in'}
         displayName={profile.display_name || 'Account'}
         organization={workspace?.name || 'Workspace'}
       />
-      <main className="workspace-main">{children}</main>
-    </div>
+        <main className="workspace-main">{children}</main>
+      </div>
+    </>
   )
 }
