@@ -1,6 +1,8 @@
 import { withSupabase } from 'npm:@supabase/server'
 import OpenAI from 'npm:openai'
 
+declare const EdgeRuntime: { waitUntil(promise: Promise<unknown>): void }
+
 type IntentRequest = { project_id?: string; regenerate?: boolean }
 
 type SuggestedIntent = {
@@ -172,8 +174,9 @@ const handler = {
 
     if (jobError || !job) return json({ error: jobError?.message ?? 'Could not start intent generation' }, 400)
 
-    try {
-      await ctx.supabase.from('research_jobs').update({ progress: 25, stage: 'generating_buyer_intents' }).eq('id', job.id)
+    const generationTask = (async () => {
+      try {
+        await ctx.supabase.from('research_jobs').update({ progress: 25, stage: 'generating_buyer_intents' }).eq('id', job.id)
       const openai = new OpenAI({ apiKey })
       const companyContext = {
         project: { company: profile.company_name, domain: project.domain, market: project.market, primary_language: project.primary_language, enabled_languages: project.enabled_languages },
@@ -236,12 +239,25 @@ const handler = {
 
       await ctx.supabase.from('audit_events').insert({ workspace_id: project.workspace_id, project_id: project.id, actor_user_id: userId, event_type: 'buyer_intents_suggested', entity_type: 'company_profile', entity_id: profile.id, payload: { research_job_id: job.id, model, generated: intents.length } })
 
-      return json({ job: { id: job.id, status: 'succeeded', stage: 'buyer_intents_ready_for_review' }, summary: parsed.summary, generated: intents.length, intents: inserted, review_required: true })
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown intent-generation error'
-      await ctx.supabase.from('research_jobs').update({ status: 'failed', stage: 'intent_generation_failed', error: { message, model }, completed_at: new Date().toISOString() }).eq('id', job.id)
-      return json({ error: message, job_id: job.id }, 422)
-    }
+        return
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Unknown intent-generation error'
+        await ctx.supabase.from('research_jobs').update({
+          status: 'failed',
+          stage: 'intent_generation_failed',
+          error: { message, model },
+          completed_at: new Date().toISOString(),
+        }).eq('id', job.id)
+      }
+    })()
+
+    EdgeRuntime.waitUntil(generationTask)
+
+    return json({
+      job: { id: job.id, status: 'running', stage: 'generating_buyer_intents' },
+      pending: true,
+      message: 'Buyer Intent generation started. You can leave this page; Riseklix will keep working in the background.',
+    }, 202)
   }),
 }
 
