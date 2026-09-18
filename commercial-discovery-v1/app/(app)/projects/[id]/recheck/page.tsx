@@ -1,5 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
-import { createBaselinePanel, runOpenAIObservationBatch } from './actions'
+import { createBaselinePanel, createPostChangeRecheck, runOpenAIObservationBatch } from './actions'
 import { PendingButton } from '@/components/pending-button'
 
 function record(value: unknown) {
@@ -11,17 +11,20 @@ export default async function RecheckPage({ params, searchParams }: { params: Pr
   const query = await searchParams
   const supabase = await createClient()
 
-  const [{ data: benchmarks }, { data: expressions }, { data: memberships }, { data: observations }, { data: surfaces }] = await Promise.all([
+  const [{ data: benchmarks }, { data: expressions }, { data: memberships }, { data: observations }, { data: surfaces }, { data: verifiedTasks }] = await Promise.all([
     supabase.from('benchmarks').select('id,benchmark_type,status,version,started_at,completed_at,parent_benchmark_id,collection_config,created_at').eq('project_id', id).order('created_at', { ascending: false }),
     supabase.from('prompt_expressions').select('id,buyer_intent_id,language,mode,status,is_frozen').eq('project_id', id),
     supabase.from('benchmark_prompts').select('benchmark_id,prompt_expression_id,buyer_intent_id').eq('project_id', id),
     supabase.from('observation_runs').select('id,benchmark_id,prompt_expression_id,provider,surface,model_label,repetition,language,run_status,retrieval_status,target_rank,captured_at,metadata,error_message').eq('project_id', id).order('created_at', { ascending: false }),
     supabase.from('benchmark_surfaces').select('id,benchmark_id,provider,surface,model_label,enabled,status,expected_runs,captured_runs,error_runs,metadata,started_at,completed_at').eq('project_id', id).order('created_at'),
+    supabase.from('implementation_tasks').select('id,blueprint_id,route,status,verified_at').eq('project_id', id).eq('status', 'verified').order('verified_at', { ascending: false }),
   ])
 
   const error = typeof query.error === 'string' ? query.error : null
   const message = typeof query.message === 'string' ? query.message : null
   const baseline = benchmarks?.find((benchmark) => benchmark.benchmark_type === 'baseline')
+  const activeRecheck = benchmarks?.find((benchmark) => benchmark.benchmark_type === 'recheck' && ['draft', 'running'].includes(benchmark.status))
+  const verifiedTaskCount = verifiedTasks?.length ?? 0
 
   const approvedByIntent = new Map<string, Set<string>>()
   for (const expression of expressions ?? []) {
@@ -57,6 +60,32 @@ export default async function RecheckPage({ params, searchParams }: { params: Pr
             <input type="hidden" name="project_id" value={id} />
             <PendingButton pendingLabel="Freezing baseline…" disabled={!eligibleIntentCount}>Create frozen baseline</PendingButton>
           </form>
+        </section>
+      )}
+
+      {baseline?.status === 'complete' && verifiedTaskCount > 0 && !activeRecheck && (
+        <section className="post-change-cta">
+          <div>
+            <div className="eyebrow">VERIFIED WORK → COMPARABLE RECHECK</div>
+            <h2>{verifiedTaskCount} verified implementation{verifiedTaskCount === 1 ? ' is' : 's are'} ready to measure.</h2>
+            <p>Riseklix will reuse the frozen prompt panel and the same declared observation surfaces. The new run records what had been verified before measurement without claiming those changes caused any subsequent model behavior.</p>
+          </div>
+          <form action={createPostChangeRecheck}>
+            <input type="hidden" name="project_id" value={id} />
+            <input type="hidden" name="baseline_id" value={baseline.id} />
+            <PendingButton pendingLabel="Creating comparable recheck…">Create post-change recheck</PendingButton>
+          </form>
+        </section>
+      )}
+
+      {activeRecheck && (
+        <section className="post-change-cta active">
+          <div>
+            <div className="eyebrow">POST-CHANGE RECHECK ACTIVE</div>
+            <h2>Keep the comparison panel frozen until collection finishes.</h2>
+            <p>This recheck is tied back to the baseline and the implementation snapshot that existed before collection started.</p>
+          </div>
+          <span>{activeRecheck.status}</span>
         </section>
       )}
 
