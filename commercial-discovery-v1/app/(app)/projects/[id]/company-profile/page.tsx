@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import { approveCompanyProfile, runCompanyResearch, saveCompanyProfile } from './actions'
+import { PendingButton } from '@/components/pending-button'
 
 function listText(value: unknown) {
   return Array.isArray(value)
@@ -56,7 +57,7 @@ export default async function CompanyProfilePage({ params, searchParams }: { par
         </div>
         <form action={runCompanyResearch}>
           <input type="hidden" name="project_id" value={id} />
-          <button type="submit">{job?.status === 'succeeded' ? 'Refresh evidence' : 'Run company research'}</button>
+          <PendingButton pendingLabel="Researching company…">{job?.status === 'succeeded' ? 'Refresh evidence' : 'Run company research'}</PendingButton>
         </form>
       </section>
 
@@ -122,7 +123,7 @@ export default async function CompanyProfilePage({ params, searchParams }: { par
                 <label>Buyer groups<textarea name="audiences" defaultValue={listText(profile.audiences)} placeholder={'EPC contractors\nFacility managers'} /></label>
                 <label>Geographies<textarea name="geographies" defaultValue={listText(profile.geographies)} placeholder={'India\nDelhi NCR\nMumbai'} /></label>
                 <label className="full">What we are less certain about<textarea name="uncertainty" defaultValue={listText(profile.uncertainty)} placeholder={'Exact local inventory by depot\nGuaranteed response SLA'} /></label>
-                <div className="profile-form-actions full"><button type="submit">Save reviewed profile</button></div>
+                <div className="profile-form-actions full"><PendingButton pendingLabel="Saving profile…">Save reviewed profile</PendingButton></div>
               </form>
             </details>
 
@@ -131,7 +132,7 @@ export default async function CompanyProfilePage({ params, searchParams }: { par
               <div className="eyebrow">HUMAN APPROVAL GATE</div>
               <h3>{approved ? 'Company context approved.' : 'Does this materially describe the business correctly?'}</h3>
               <p>Approval unlocks Buyer Situation generation. It does not certify every external claim as true.</p>
-              <button type="submit" disabled={approved}>{approved ? 'Approved' : 'Approve company context'}</button>
+              <PendingButton pendingLabel="Approving…" disabled={approved}>{approved ? 'Approved' : 'Approve company context'}</PendingButton>
             </form>
           </div>
         </>
