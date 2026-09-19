@@ -1,71 +1,67 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
+import {
+  disableAnalysisNotifications,
+  enableAnalysisNotifications,
+  getAnalysisNotificationState,
+  type AnalysisNotificationState,
+} from '@/lib/analysis-notifications'
 
-type State = 'loading' | 'unsupported' | 'off' | 'on' | 'blocked'
+type State = AnalysisNotificationState | 'loading'
 
 export function AnalysisNotificationSetting() {
   const [state, setState] = useState<State>('loading')
 
-  useEffect(() => {
-    const frame = window.requestAnimationFrame(() => {
-      if (!('Notification' in window)) {
-        setState('unsupported')
-        return
-      }
-      if (Notification.permission === 'denied') {
-        setState('blocked')
-        return
-      }
-      const enabled = window.localStorage.getItem('riseklix.analysis.notifications') === 'true'
-      setState(enabled && Notification.permission === 'granted' ? 'on' : 'off')
-    })
-    return () => window.cancelAnimationFrame(frame)
+  const syncState = useCallback(() => {
+    setState(getAnalysisNotificationState())
   }, [])
 
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(syncState)
+
+    const onFocus = () => syncState()
+    window.addEventListener('focus', onFocus)
+
+    return () => {
+      window.cancelAnimationFrame(frame)
+      window.removeEventListener('focus', onFocus)
+    }
+  }, [syncState])
+
   async function enable() {
-    if (!('Notification' in window)) {
-      setState('unsupported')
-      return
-    }
-
-    const permission = await Notification.requestPermission()
-    if (permission === 'granted') {
-      window.localStorage.setItem('riseklix.analysis.notifications', 'true')
-      window.localStorage.setItem('riseklix.analysis.notifications.enabled_at', new Date().toISOString())
-      setState('on')
-      if ('serviceWorker' in navigator) {
-        try {
-          await navigator.serviceWorker.register('/analysis-notifications-sw.js')
-        } catch {
-          // The preference can still be used by desktop notification fallback.
-        }
-      }
-      return
-    }
-
-    setState(permission === 'denied' ? 'blocked' : 'off')
+    const next = await enableAnalysisNotifications({ sendTest: true })
+    setState(next)
   }
 
   function disable() {
-    window.localStorage.setItem('riseklix.analysis.notifications', 'false')
+    disableAnalysisNotifications()
     setState('off')
   }
+
+  const isOn = state === 'on'
+  const disabled = state === 'blocked' || state === 'unsupported' || state === 'loading'
 
   return (
     <div className="settings-notification-control">
       <div>
         <strong>Analysis completion</strong>
         <p>Get a browser notification when an Autopilot analysis finishes while Riseklix is open in this browser.</p>
-        {state === 'blocked' && <small>Blocked by your browser. Use the site-permission control in the address bar to re-enable notifications.</small>}
-        {state === 'unsupported' && <small>This browser does not support web notifications.</small>}
+        {isOn && <small className="notification-setting-success">Enabled for this browser. Turning it off here keeps the browser permission untouched, so you can re-enable it without another permission prompt.</small>}
+        {state === 'blocked' && <small>Blocked by your browser. Re-enable notifications in this site&apos;s browser permissions, then return here.</small>}
+        {state === 'unsupported' && <small>This browser or device does not support Riseklix browser notifications here.</small>}
       </div>
 
-      {state === 'on' ? (
-        <button type="button" className="settings-toggle active" onClick={disable} aria-pressed="true"><i />On</button>
-      ) : (
-        <button type="button" className="settings-toggle" onClick={enable} disabled={state === 'blocked' || state === 'unsupported' || state === 'loading'} aria-pressed="false"><i />Off</button>
-      )}
+      <button
+        type="button"
+        className={isOn ? 'settings-toggle active' : 'settings-toggle'}
+        onClick={isOn ? disable : enable}
+        disabled={disabled}
+        aria-pressed={isOn}
+      >
+        <i />
+        {state === 'loading' ? '…' : isOn ? 'On' : 'Off'}
+      </button>
     </div>
   )
 }
