@@ -6,6 +6,7 @@ import { approvePromptExpression, generatePromptExpressions, rejectPromptExpress
 import { PendingButton } from '@/components/pending-button'
 import { ResearchJobWatcher } from '@/components/research-job-watcher'
 import { runApprovedQuestions } from '../test/actions'
+import { isUnaidedRetrievalEligible } from '@/lib/prompt-eligibility'
 
 function record(value: unknown) {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
@@ -60,12 +61,15 @@ export default async function BuyerSituationsPage({ params, searchParams }: { pa
   const approvedQuestionModes = new Map<string, Set<string>>()
   for (const prompt of prompts ?? []) {
     if (prompt.status !== 'approved') continue
+    if (prompt.mode === 'unaided' && !isUnaidedRetrievalEligible(prompt.prompt_text)) continue
     const modes = approvedQuestionModes.get(prompt.buyer_intent_id) ?? new Set<string>()
     modes.add(prompt.mode)
     approvedQuestionModes.set(prompt.buyer_intent_id, modes)
   }
   const testReadyIntentCount = Array.from(approvedQuestionModes.values()).filter((modes) => modes.has('unaided') && modes.has('aided')).length
-  const approvedQuestionCount = (prompts ?? []).filter((prompt) => prompt.status === 'approved').length
+  const approvedQuestionCount = (prompts ?? []).filter((prompt) =>
+    prompt.status === 'approved' && (prompt.mode !== 'unaided' || isUnaidedRetrievalEligible(prompt.prompt_text))
+  ).length
 
   return (
     <div className="project-page">
@@ -74,7 +78,7 @@ export default async function BuyerSituationsPage({ params, searchParams }: { pa
         <div>
           <div className="eyebrow">WHERE SHOULD WE BE CONSIDERED?</div>
           <h1>Buyer Situations</h1>
-          <p>Riseklix first defines the buying situation in plain business terms. Once you approve it, Riseklix researches the competitor set and generates the exact natural-language questions that will be asked across AI models.</p>
+          <p>Riseklix first defines the buying situation in plain business terms. Manual Editing keeps approval with you; Autopilot can accept its configured initial set after Company Intelligence confirmation. The review source remains visible either way.</p>
         </div>
       </section>
 
@@ -145,7 +149,7 @@ export default async function BuyerSituationsPage({ params, searchParams }: { pa
 
             return (
               <article key={intent.id} className={intent.status === 'rejected' ? 'intent-rejected' : ''}>
-                <div className="intent-meta"><span>{intent.intent_key}</span><span>{intent.provenance}</span><span>{intent.priority}</span><span>{intent.status}</span>{intent.review_source && <span>{intent.review_source === 'autopilot' ? 'AI accepted' : 'human reviewed'}</span>}</div>
+                <div className="intent-meta"><span>{intent.intent_key}</span><span>{intent.provenance}</span><span>{intent.priority}</span><span>{intent.status}</span>{intent.review_source && <span>{intent.review_source === 'autopilot' ? 'Autopilot accepted · not human reviewed' : 'Human reviewed'}</span>}</div>
                 <div className="intent-not-prompt">COMMERCIAL SITUATION · NOT SENT TO AI</div>
                 <h2>{intent.title}</h2>
                 <p className="intent-job"><span>What the buyer is trying to do</span>{intent.job_to_be_done}</p>
@@ -298,7 +302,7 @@ export default async function BuyerSituationsPage({ params, searchParams }: { pa
                         <div className="prompt-list">
                           {intentPrompts.map((prompt) => (
                             <div className={`prompt-card prompt-${prompt.status}`} key={prompt.id}>
-                              <div className="prompt-card-meta"><span>{prompt.language}</span><span>{prompt.mode === 'unaided' ? 'buyer question' : 'brand check'}</span><span>v{prompt.version}.{prompt.variant_no}</span><span>{prompt.status}</span>{prompt.review_source && <span>{prompt.review_source === 'autopilot' ? 'AI accepted' : 'human reviewed'}</span>}{prompt.is_frozen && <span>frozen</span>}</div>
+                              <div className="prompt-card-meta"><span>{prompt.language}</span><span>{prompt.mode === 'unaided' ? 'buyer question' : 'brand check'}</span><span>v{prompt.version}.{prompt.variant_no}</span><span>{prompt.status}</span>{prompt.review_source && <span>{prompt.review_source === 'autopilot' ? 'Autopilot accepted · not human reviewed' : 'Human reviewed'}</span>}{prompt.mode === 'unaided' && !isUnaidedRetrievalEligible(prompt.prompt_text) && <span>not retrieval-eligible</span>}{prompt.is_frozen && <span>frozen</span>}</div>
                               <small className="prompt-human-label">{prompt.mode === 'unaided' ? 'WHAT A BUYER COULD ACTUALLY ASK' : 'SAME DECISION · COMPANY NAMED'}</small>
                               <p>{prompt.prompt_text}</p>
                               <div className="prompt-surface-note">Runs independently across every enabled AI surface.</div>
