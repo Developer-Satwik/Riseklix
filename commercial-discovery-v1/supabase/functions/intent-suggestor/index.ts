@@ -55,15 +55,15 @@ const INTENT_SCHEMA = {
 
 async function continueAutopilot(req: Request, projectId: string) {
   const authHeader = req.headers.get('Authorization')
+  const apiKeyHeader = req.headers.get('apikey')
   const supabaseUrl = Deno.env.get('SUPABASE_URL')
   const anonKey = Deno.env.get('SUPABASE_ANON_KEY')
-  if (!authHeader || !supabaseUrl) return
+  if (!supabaseUrl || (!authHeader && !apiKeyHeader)) return
 
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    Authorization: authHeader,
-  }
-  if (anonKey) headers.apikey = anonKey
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+  if (authHeader) headers.Authorization = authHeader
+  if (apiKeyHeader) headers.apikey = apiKeyHeader
+  else if (anonKey) headers.apikey = anonKey
 
   try {
     await fetch(supabaseUrl + '/functions/v1/auto-analysis-runner', {
@@ -122,8 +122,10 @@ function dedupe(intents: SuggestedIntent[]) {
 }
 
 const handler = {
-  fetch: withSupabase({ auth: 'user' }, async (req, ctx) => {
+  fetch: withSupabase({ auth: ['user','secret'] }, async (req, ctx) => {
     if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405)
+
+    const db = ctx.authMode === 'user' ? db : ctx.supabaseAdmin
 
     let body: IntentRequest
     try { body = await req.json() } catch { return json({ error: 'Invalid JSON body' }, 400) }
@@ -133,20 +135,20 @@ const handler = {
     const apiKey = Deno.env.get('OPENAI_API_KEY')
     if (!apiKey) return json({ error: 'reasoning_provider_not_configured', message: 'OPENAI_API_KEY is not configured for the intent-suggestor function.' }, 503)
 
-    const { data: project, error: projectError } = await ctx.supabase.from('projects').select('id,workspace_id,name,domain,market,primary_language,enabled_languages').eq('id', projectId).single()
+    const { data: project, error: projectError } = await db.from('projects').select('id,workspace_id,name,domain,market,primary_language,enabled_languages').eq('id', projectId).single()
     if (projectError || !project) return json({ error: 'Project not found or access denied' }, 404)
 
-    const { data: profile, error: profileError } = await ctx.supabase.from('company_profile_versions').select('id,version,status,company_name,summary,industry,business_model,products,services,audiences,geographies,claims,evidence,uncertainty').eq('project_id', project.id).eq('is_current', true).single()
+    const { data: profile, error: profileError } = await db.from('company_profile_versions').select('id,version,status,company_name,summary,industry,business_model,products,services,audiences,geographies,claims,evidence,uncertainty').eq('project_id', project.id).eq('is_current', true).single()
     if (profileError || !profile) return json({ error: 'Current Company Intelligence Profile not found' }, 404)
     if (profile.status !== 'approved') return json({ error: 'company_profile_not_approved', message: 'Approve Company Intelligence before generating Buyer Intents.' }, 409)
 
-    const { data: sources } = await ctx.supabase.from('research_sources').select('id,url,title,metadata').eq('project_id', project.id).order('captured_at', { ascending: false }).limit(8)
+    const { data: sources } = await db.from('research_sources').select('id,url,title,metadata').eq('project_id', project.id).order('captured_at', { ascending: false }).limit(8)
     const sourcePackets = (sources ?? []).map(safeSource)
     const model = Deno.env.get('RISEKLIX_INTENT_MODEL') || 'gpt-5.6-sol'
     const idempotencyKey = `intent-suggestor:${profile.id}:v${profile.version}:${model}`
 
     if (!body.regenerate) {
-      const existing = await ctx.supabase
+      const existing = await db
         .from('research_jobs')
         .select('id,status,progress,stage,output,created_at')
         .eq('project_id', project.id)
@@ -171,7 +173,7 @@ const handler = {
       }
 
       if (existing.data) {
-        await ctx.supabase.from('research_jobs').update({
+        await db.from('research_jobs').update({
           status: existing.data.status === 'running' ? 'failed' : existing.data.status,
           stage: existing.data.status === 'running' ? 'intent_generation_interrupted' : existing.data.stage,
           error: existing.data.status === 'running'
@@ -183,7 +185,7 @@ const handler = {
       }
     }
 
-    const budget = await ctx.supabase.rpc('consume_ai_budget', {
+    const budget = await db.rpc('consume_ai_budget', {
       p_project_id: project.id,
       p_kind: 'reasoning',
       p_units: 1,
@@ -199,7 +201,7 @@ const handler = {
     }
 
     const userId = String(ctx.userClaims?.id ?? ctx.jwtClaims?.sub ?? '') || null
-    const { data: job, error: jobError } = await ctx.supabase.from('research_jobs').insert({
+    const { data: job, error: jobError } = await db.from('research_jobs').insert({
       workspace_id: project.workspace_id,
       project_id: project.id,
       created_by: userId,
@@ -216,7 +218,7 @@ const handler = {
 
     const generationTask = (async () => {
       try {
-        await ctx.supabase.from('research_jobs').update({ progress: 25, stage: 'generating_buyer_intents' }).eq('id', job.id)
+        await db.from('research_jobs').update({ progress: 25, stage: 'generating_buyer_intents' }).eq('id', job.id)
       const openai = new OpenAI({ apiKey })
       const companyContext = {
         project: { company: profile.company_name, domain: project.domain, market: project.market, primary_language: project.primary_language, enabled_languages: project.enabled_languages },
@@ -234,7 +236,7 @@ const handler = {
         text: { format: { type: 'json_schema', name: 'riseklix_buyer_intents', strict: true, schema: INTENT_SCHEMA } },
       })
 
-      await recordOpenAIUsage(ctx.supabase, response, {
+      await recordOpenAIUsage(db, response, {
         workspaceId: project.workspace_id,
         projectId: project.id,
         researchJobId: job.id,
@@ -250,7 +252,7 @@ const handler = {
       const intents = dedupe(parsed.intents).slice(0, 24).map((intent) => ({ ...intent, source_refs: intent.source_refs.filter((ref) => validSourceIds.has(ref)) }))
       if (intents.length < 8) throw new Error('Intent Suggestor produced too few distinct commercial situations for review')
 
-      const { data: currentIntents } = await ctx.supabase.from('buyer_intents').select('intent_key').eq('project_id', project.id)
+      const { data: currentIntents } = await db.from('buyer_intents').select('intent_key').eq('project_id', project.id)
       let nextNo = (currentIntents ?? []).reduce((max, item) => {
         const match = item.intent_key?.match(/INT-(\d+)/)
         return Math.max(max, match ? Number(match[1]) : 0)
@@ -279,22 +281,22 @@ const handler = {
         language_policy: intent.language_policy,
       }))
 
-      const { data: inserted, error: insertError } = await ctx.supabase.from('buyer_intents').insert(rows).select('id,intent_key,title,provenance,priority,source_refs')
+      const { data: inserted, error: insertError } = await db.from('buyer_intents').insert(rows).select('id,intent_key,title,provenance,priority,source_refs')
       if (insertError) throw insertError
 
-      await ctx.supabase.from('research_jobs').update({
+      await db.from('research_jobs').update({
         status: 'succeeded', progress: 100, stage: 'buyer_intents_ready_for_review',
         output: { model, summary: parsed.summary, generated: intents.length, inserted, usage: record(response).usage ?? null, review_required: true },
         completed_at: new Date().toISOString(),
       }).eq('id', job.id)
 
-      await ctx.supabase.from('audit_events').insert({ workspace_id: project.workspace_id, project_id: project.id, actor_user_id: userId, event_type: 'buyer_intents_suggested', entity_type: 'company_profile', entity_id: profile.id, payload: { research_job_id: job.id, model, generated: intents.length } })
+      await db.from('audit_events').insert({ workspace_id: project.workspace_id, project_id: project.id, actor_user_id: userId, event_type: 'buyer_intents_suggested', entity_type: 'company_profile', entity_id: profile.id, payload: { research_job_id: job.id, model, generated: intents.length } })
 
       await continueAutopilot(req, project.id)
         return
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Unknown intent-generation error'
-        await ctx.supabase.from('research_jobs').update({
+        await db.from('research_jobs').update({
           status: 'failed',
           stage: 'intent_generation_failed',
           error: { message, model },
