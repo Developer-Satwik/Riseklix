@@ -31,6 +31,9 @@ const recheckActionsSource = read('app/(app)/projects/[id]/recheck/actions.ts')
 const promptReviewActions = read('app/(app)/projects/[id]/buyer-situations/prompt-actions.ts')
 const appPromptEligibility = read('lib/prompt-eligibility.ts')
 const edgePromptEligibility = read('supabase/functions/_shared/prompt-eligibility.ts')
+const buyerSituationsPage = read('app/(app)/projects/[id]/buyer-situations/page.tsx')
+const whyPage = read('app/(app)/projects/[id]/why/page.tsx')
+const methodPage = read('app/(app)/projects/[id]/method/page.tsx')
 
 requireText(
   report,
@@ -202,6 +205,38 @@ for (const testCase of promptEligibilityCases) {
     throw new Error('Methodology invariant failed: ' + testCase.label)
   }
 }
+
+
+requireText(
+  report,
+  "review_source,is_current",
+  'The report must retain finding review provenance instead of presenting automated acceptance as human review.',
+)
+requireText(
+  report,
+  "API proxies are not presented as equivalent to consumer-app interfaces.",
+  'The report must keep API-proxy measurement boundaries visible.',
+)
+requireText(
+  buyerSituationsPage,
+  "Autopilot accepted · not human reviewed",
+  'Buyer Situation and question UI must distinguish Autopilot acceptance from human review.',
+)
+requireText(
+  buyerSituationsPage,
+  "not retrieval-eligible",
+  'Legacy informational unaided questions must remain visibly excluded from retrieval readiness.',
+)
+requireText(
+  whyPage,
+  "Autopilot accepted · not human reviewed",
+  'WHY findings must distinguish Autopilot acceptance from human review.',
+)
+requireText(
+  methodPage,
+  "Automated acceptance never impersonates a human approver.",
+  'Method documentation must preserve the review-provenance boundary.',
+)
 
 const trustedWorkerFunctions = [
   'auto-analysis-runner',
