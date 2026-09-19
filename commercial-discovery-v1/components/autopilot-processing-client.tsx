@@ -11,14 +11,16 @@ export function AutopilotProcessingClient({
   projectName,
   complete,
   paused,
+  activeJobCount,
 }: {
   projectId: string
   projectName: string
   complete: boolean
   paused: boolean
+  activeJobCount: number
 }) {
   const router = useRouter()
-  const started = useRef(false)
+  const lastResumeAt = useRef(0)
   const notified = useRef(false)
   const [notificationState, setNotificationState] = useState<NotificationState>('default')
 
@@ -42,10 +44,27 @@ export function AutopilotProcessingClient({
   }, [complete, router])
 
   useEffect(() => {
-    if (complete || paused || started.current) return
-    started.current = true
-    void resumeAutopilot(projectId)
-  }, [complete, paused, projectId])
+    if (complete || paused || activeJobCount > 0) return
+
+    let cancelled = false
+
+    async function resumeIfIdle() {
+      if (cancelled) return
+      const now = Date.now()
+      if (now - lastResumeAt.current < 10_000) return
+      lastResumeAt.current = now
+      await resumeAutopilot(projectId)
+      if (!cancelled) router.refresh()
+    }
+
+    void resumeIfIdle()
+    const timer = window.setInterval(() => void resumeIfIdle(), 10_000)
+
+    return () => {
+      cancelled = true
+      window.clearInterval(timer)
+    }
+  }, [activeJobCount, complete, paused, projectId, router])
 
   useEffect(() => {
     if (!complete || notified.current) return
