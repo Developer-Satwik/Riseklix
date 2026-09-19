@@ -4,6 +4,7 @@ import { runApprovedQuestions } from './actions'
 import { PendingButton } from '@/components/pending-button'
 import { ResearchJobWatcher } from '@/components/research-job-watcher'
 import { BenchmarkCollectionResumer } from '@/components/benchmark-collection-resumer'
+import { isUnaidedRetrievalEligible } from '@/lib/prompt-eligibility'
 
 function record(value: unknown) {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
@@ -30,9 +31,11 @@ export default async function TestPage({ params, searchParams }: { params: Promi
 
   const intentById = new Map((intents ?? []).map((intent) => [intent.id, intent]))
   const approved = (expressions ?? []).filter((expression) => expression.status === 'approved')
+  const invalidApprovedUnaided = approved.filter((expression) => expression.mode === 'unaided' && !isUnaidedRetrievalEligible(expression.prompt_text))
+  const baselineApproved = approved.filter((expression) => expression.mode !== 'unaided' || isUnaidedRetrievalEligible(expression.prompt_text))
 
   const approvedByIntent = new Map<string, Set<string>>()
-  for (const expression of approved) {
+  for (const expression of baselineApproved) {
     const modes = approvedByIntent.get(expression.buyer_intent_id) ?? new Set<string>()
     modes.add(expression.mode)
     approvedByIntent.set(expression.buyer_intent_id, modes)
@@ -43,7 +46,7 @@ export default async function TestPage({ params, searchParams }: { params: Promi
       .filter(([, modes]) => modes.has('unaided') && modes.has('aided'))
       .map(([intentId]) => intentId)
   )
-  const eligibleQuestions = approved.filter((expression) => eligibleIntentIds.has(expression.buyer_intent_id))
+  const eligibleQuestions = baselineApproved.filter((expression) => eligibleIntentIds.has(expression.buyer_intent_id))
 
   return (
     <div className="project-page test-page">
@@ -58,6 +61,11 @@ export default async function TestPage({ params, searchParams }: { params: Promi
 
       {error && <div className="form-alert error" role="alert">{error}</div>}
       {message && <div className="form-alert success" role="status" aria-live="polite">{message}</div>}
+      {!baseline && invalidApprovedUnaided.length > 0 && (
+        <div className="form-alert error" role="alert">
+          {invalidApprovedUnaided.length} approved unaided question{invalidApprovedUnaided.length === 1 ? '' : 's'} ask for criteria or advice rather than named commercial options. They will not enter a new retrieval baseline; edit or regenerate them first if the affected Buyer Situation is otherwise incomplete.
+        </div>
+      )}
 
       {!baseline && (
         <>
@@ -103,12 +111,15 @@ export default async function TestPage({ params, searchParams }: { params: Promi
                         <span>{eligible ? 'Ready' : 'Needs both modes'}</span>
                       </header>
                       <div className="approved-question-list">
-                        {questions.map((question) => (
-                          <div key={question.id}>
-                            <span>{question.mode === 'unaided' ? 'Buyer question' : 'Brand check'} · {question.language}</span>
-                            <p>{question.prompt_text}</p>
-                          </div>
-                        ))}
+                        {questions.map((question) => {
+                          const retrievalEligible = question.mode !== 'unaided' || isUnaidedRetrievalEligible(question.prompt_text)
+                          return (
+                            <div key={question.id}>
+                              <span>{question.mode === 'unaided' ? 'Buyer question' : 'Brand check'} · {question.language}{retrievalEligible ? '' : ' · not retrieval-eligible'}</span>
+                              <p>{question.prompt_text}</p>
+                            </div>
+                          )
+                        })}
                       </div>
                     </article>
                   )
