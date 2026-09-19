@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { approveBlueprint, chooseExecutionRoute, generateBlueprint, updateImplementationTask } from './actions'
 import { PendingButton } from '@/components/pending-button'
+import { ResearchJobWatcher } from '@/components/research-job-watcher'
 
 function record(value: unknown) {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
@@ -15,12 +16,13 @@ export default async function FixesPage({ params, searchParams }: { params: Prom
   const query = await searchParams
   const supabase = await createClient()
 
-  const [{ data: findings }, { data: blueprints }, { data: tasks }, { data: intents }, { data: sources }] = await Promise.all([
+  const [{ data: findings }, { data: blueprints }, { data: tasks }, { data: intents }, { data: sources }, { data: blueprintJobs }] = await Promise.all([
     supabase.from('findings').select('id,buyer_intent_id,finding_type,severity,decision,explanation,evidence_strength,review_status,is_current').eq('project_id', id).eq('is_current', true).order('created_at'),
     supabase.from('blueprints').select('id,finding_id,version,status,title,objective,target_url,suggested_h1,required_sections,evidence_required,claims_to_verify,internal_links,structured_data,acceptance_criteria,generated_content,source_refs,created_at').eq('project_id', id).order('created_at'),
     supabase.from('implementation_tasks').select('id,blueprint_id,route,status,assignee_user_id,external_assignee,due_at,delivery_evidence,verification_result,created_at').eq('project_id', id).order('created_at'),
     supabase.from('buyer_intents').select('id,intent_key,title').eq('project_id', id),
     supabase.from('research_sources').select('id,title,url,source_type').eq('project_id', id),
+    supabase.from('research_jobs').select('id,status,stage,progress,input,error,created_at,completed_at').eq('project_id', id).eq('job_type', 'blueprint').order('created_at', { ascending: false }).limit(30),
   ])
 
   const error = typeof query.error === 'string' ? query.error : null
@@ -39,6 +41,18 @@ export default async function FixesPage({ params, searchParams }: { params: Prom
 
   const actionFindings = (findings ?? []).filter((finding) => finding.review_status === 'approved' && finding.decision === 'fix')
   const pendingBlueprints = actionFindings.filter((finding) => !latestByFinding.has(finding.id))
+  const activeBlueprintJobs = (blueprintJobs ?? []).filter((job) => job.status === 'running' || job.status === 'queued')
+  const activeFindingIds = new Set(activeBlueprintJobs.map((job) => {
+    const input = record(job.input)
+    return typeof input.finding_id === 'string' ? input.finding_id : ''
+  }).filter(Boolean))
+  const failedJobByFinding = new Map<string, NonNullable<typeof blueprintJobs>[number]>()
+  for (const job of blueprintJobs ?? []) {
+    if (job.status !== 'failed') continue
+    const input = record(job.input)
+    const findingId = typeof input.finding_id === 'string' ? input.finding_id : ''
+    if (findingId && !failedJobByFinding.has(findingId)) failedJobByFinding.set(findingId, job)
+  }
 
   const routes = [
     ['diy', 'Do it myself', 'Use the full implementation brief, evidence checklist and acceptance criteria yourself.'],
@@ -49,6 +63,7 @@ export default async function FixesPage({ params, searchParams }: { params: Prom
 
   return (
     <div className="project-page">
+      <ResearchJobWatcher active={activeBlueprintJobs.length > 0} intervalMs={3000} />
       <section className="page-header compact">
         <div>
           <div className="eyebrow">WHAT SHOULD WE CHANGE?</div>
@@ -73,7 +88,17 @@ export default async function FixesPage({ params, searchParams }: { params: Prom
                     <input type="hidden" name="project_id" value={id} />
                     <input type="hidden" name="finding_id" value={finding.id} />
                     <input type="hidden" name="regenerate" value="false" />
-                    <PendingButton pendingLabel="Building Blueprint…">Generate Blueprint</PendingButton>
+                    <PendingButton
+                      pendingLabel="Building Blueprint…"
+                      disabled={activeFindingIds.has(finding.id)}
+                    >
+                      {activeFindingIds.has(finding.id) ? 'Building Blueprint…' : 'Generate Blueprint'}
+                    </PendingButton>
+                    {failedJobByFinding.has(finding.id) && !activeFindingIds.has(finding.id) && (
+                      <small className="form-inline-error">
+                        {String(record(failedJobByFinding.get(finding.id)?.error).message || 'The last Blueprint attempt failed. You can retry safely.')}
+                      </small>
+                    )}
                   </form>
                 </article>
               )
