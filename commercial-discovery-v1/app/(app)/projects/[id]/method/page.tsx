@@ -13,6 +13,7 @@ export default async function MethodPage({ params }: { params: Promise<{ id: str
     { data: profile },
     { data: intents },
     { data: prompts },
+    { data: findings },
     { data: benchmarks },
     { data: surfaces },
     { data: observations },
@@ -21,8 +22,9 @@ export default async function MethodPage({ params }: { params: Promise<{ id: str
   ] = await Promise.all([
     supabase.from('projects').select('name,domain,market,primary_language,enabled_languages,provider_mode,status').eq('id', id).single(),
     supabase.from('company_profile_versions').select('version,status,approved_at').eq('project_id', id).eq('is_current', true).maybeSingle(),
-    supabase.from('buyer_intents').select('id,status,provenance').eq('project_id', id),
-    supabase.from('prompt_expressions').select('id,status,mode,language,is_frozen,version').eq('project_id', id),
+    supabase.from('buyer_intents').select('id,status,provenance,review_source').eq('project_id', id),
+    supabase.from('prompt_expressions').select('id,status,mode,language,is_frozen,version,review_source').eq('project_id', id),
+    supabase.from('findings').select('id,review_status,review_source,is_current').eq('project_id', id).eq('is_current', true),
     supabase.from('benchmarks').select('id,benchmark_type,version,status,collection_config,created_at,completed_at').eq('project_id', id).order('created_at', { ascending: false }),
     supabase.from('benchmark_surfaces').select('id,benchmark_id,provider,surface,model_label,status,expected_runs,captured_runs,error_runs,metadata').eq('project_id', id).order('created_at'),
     supabase.from('observation_runs').select('id,benchmark_id,provider,surface,run_status,retrieval_status,language,metadata').eq('project_id', id),
@@ -34,6 +36,12 @@ export default async function MethodPage({ params }: { params: Promise<{ id: str
   const candidateIntents = intents?.filter((intent) => intent.status === 'candidate').length ?? 0
   const approvedPrompts = prompts?.filter((prompt) => prompt.status === 'approved').length ?? 0
   const frozenPrompts = prompts?.filter((prompt) => prompt.is_frozen).length ?? 0
+  const autopilotIntentReviews = intents?.filter((intent) => intent.review_source === 'autopilot').length ?? 0
+  const manualIntentReviews = intents?.filter((intent) => intent.review_source === 'manual').length ?? 0
+  const autopilotPromptReviews = prompts?.filter((prompt) => prompt.review_source === 'autopilot').length ?? 0
+  const manualPromptReviews = prompts?.filter((prompt) => prompt.review_source === 'manual').length ?? 0
+  const autopilotFindingReviews = findings?.filter((finding) => finding.review_source === 'autopilot').length ?? 0
+  const manualFindingReviews = findings?.filter((finding) => finding.review_source === 'manual').length ?? 0
   const captured = observations?.filter((run) => run.run_status === 'captured').length ?? 0
   const errors = observations?.filter((run) => run.run_status === 'error').length ?? 0
   const nr = observations?.filter((run) => run.run_status === 'captured' && run.retrieval_status === 'nr').length ?? 0
@@ -155,6 +163,11 @@ export default async function MethodPage({ params }: { params: Promise<{ id: str
             <div><strong>{sources?.length ?? 0}</strong><span>research sources</span></div>
             <div><strong>{retrieved}</strong><span>captured retrievals</span></div>
             <div><strong>{nr}</strong><span>captured NR observations</span></div>
+          </div>
+          <div className="method-facts">
+            <div><span>Buyer Situation review</span><strong>{autopilotIntentReviews} AI · {manualIntentReviews} human</strong></div>
+            <div><span>Buyer-question review</span><strong>{autopilotPromptReviews} AI · {manualPromptReviews} human</strong></div>
+            <div><span>WHY review</span><strong>{autopilotFindingReviews} AI · {manualFindingReviews} human</strong></div>
           </div>
         </div>
       </section>
