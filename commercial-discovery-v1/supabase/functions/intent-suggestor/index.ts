@@ -1,5 +1,6 @@
 import { withSupabase } from 'npm:@supabase/server'
 import OpenAI from 'npm:openai'
+import { openAIPromptCacheKey, recordOpenAIUsage } from '../_shared/openai-usage.ts'
 
 declare const EdgeRuntime: { waitUntil(promise: Promise<unknown>): void }
 
@@ -226,9 +227,20 @@ const handler = {
       const response = await openai.responses.create({
         model,
         reasoning: { effort: 'medium' },
+        prompt_cache_key: openAIPromptCacheKey(project.id, 'buyer-intents'),
+        prompt_cache_options: { mode: 'implicit', ttl: '30m' },
         instructions: `You are the Buyer Intent Suggestor for Riseklix Commercial Discovery.\n\nModel materially different commercial buying situations, not SEO keywords or prompt paraphrases.\n\nRules:\n1. Treat the approved Company Intelligence Profile as the business premise, but preserve uncertainty and never invent capabilities.\n2. Use supplied evidence refs when a situation is adapted from approved facts. Never claim demand volume, popularity or search frequency unless evidence explicitly provides it.\n3. provenance=adapted means derived from verified/customer-approved business facts. provenance=exploratory means commercially plausible but not evidenced as observed demand. Never mark model-generated intents as observed.\n4. Diversity must come from buyer, job, constraint, transaction model, use case, geography, buying stage or capability—not wording.\n5. Classify constraints as hard, important or contextual. Hard constraints are non-negotiable downstream.\n6. Prioritize revenue-near situations: shortlist, evaluation, vendor consolidation, replacement, purchase-vs-rent, implementation, service availability, technical/safety constraints and supported high-value use cases.\n7. Do not manufacture a problem merely because the company sells something.\n8. Language variants require buyer/audience justification; never recommend local-language testing solely because a company operates in India.\n9. Do not generate named competitors yet.\n10. Aim for 12-16 high-signal intents in this first pass. Prefer distinct commercial decisions over completeness; users can request another pass later.`,
         input: `Build Buyer Intent candidates from this approved company context and source evidence:\n\n${JSON.stringify(companyContext)}`,
         text: { format: { type: 'json_schema', name: 'riseklix_buyer_intents', strict: true, schema: INTENT_SCHEMA } },
+      })
+
+      await recordOpenAIUsage(ctx.supabase, response, {
+        workspaceId: project.workspace_id,
+        projectId: project.id,
+        researchJobId: job.id,
+        stage: 'buyer_intent_generation',
+        model,
+        metadata: { profile_version_id: profile.id, source_count: sourcePackets.length },
       })
 
       const raw = outputText(response)
