@@ -66,7 +66,7 @@ requireText(
 )
 requireText(
   globals,
-  'max-width:100%;\n  max-height:100%',
+  'max-width:100%;max-height:100%',
   'Collapsed navigation SVGs must remain bounded by their icon container.',
 )
 
