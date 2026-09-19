@@ -77,15 +77,15 @@ const RESPONSE_SCHEMA = {
 
 async function continueAutopilot(req: Request, projectId: string) {
   const authHeader = req.headers.get('Authorization')
+  const apiKeyHeader = req.headers.get('apikey')
   const supabaseUrl = Deno.env.get('SUPABASE_URL')
   const anonKey = Deno.env.get('SUPABASE_ANON_KEY')
-  if (!authHeader || !supabaseUrl) return
+  if (!supabaseUrl || (!authHeader && !apiKeyHeader)) return
 
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    Authorization: authHeader,
-  }
-  if (anonKey) headers.apikey = anonKey
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+  if (authHeader) headers.Authorization = authHeader
+  if (apiKeyHeader) headers.apikey = apiKeyHeader
+  else if (anonKey) headers.apikey = anonKey
 
   try {
     await fetch(supabaseUrl + '/functions/v1/auto-analysis-runner', {
@@ -213,8 +213,10 @@ function dedupe(candidates: Candidate[]) {
 }
 
 const handler = {
-  fetch: withSupabase({ auth: 'user' }, async (req, ctx) => {
+  fetch: withSupabase({ auth: ['user','secret'] }, async (req, ctx) => {
     if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405)
+
+    const db = ctx.authMode === 'user' ? db : ctx.supabaseAdmin
 
     let body: RequestBody
     try {
@@ -236,12 +238,12 @@ const handler = {
     }
 
     const [{ data: project, error: projectError }, { data: intent, error: intentError }] = await Promise.all([
-      ctx.supabase
+      db
         .from('projects')
         .select('id,workspace_id,name,domain,market')
         .eq('id', projectId)
         .single(),
-      ctx.supabase
+      db
         .from('buyer_intents')
         .select('id,intent_key,version,status,title,buyer,job_to_be_done,constraints,required_capabilities,geography,commercial_model,purchase_stage,priority')
         .eq('id', intentId)
@@ -252,7 +254,7 @@ const handler = {
     if (projectError || intentError || !project || !intent) return json({ error: 'Project or Buyer Intent not found' }, 404)
     if (intent.status !== 'approved') return json({ error: 'intent_not_approved', message: 'Approve the Buyer Intent before competitor discovery.' }, 409)
 
-    const { data: profile } = await ctx.supabase
+    const { data: profile } = await db
       .from('company_profile_versions')
       .select('company_name,industry,business_model,products,services,geographies,uncertainty')
       .eq('project_id', project.id)
@@ -264,7 +266,7 @@ const handler = {
     const idempotencyKey = `competitor-discovery:${intent.id}:v${intent.version}:${model}:escalate-${escalationModel}`
 
     if (!body.regenerate) {
-      const existing = await ctx.supabase
+      const existing = await db
         .from('research_jobs')
         .select('id,status,progress,stage,output,error,created_at')
         .eq('project_id', project.id)
@@ -288,7 +290,7 @@ const handler = {
       }
 
       if (existing.data) {
-        await ctx.supabase.from('research_jobs').update({
+        await db.from('research_jobs').update({
           status: existing.data.status === 'running' ? 'failed' : existing.data.status,
           stage: existing.data.status === 'running' ? 'competitor_discovery_interrupted' : existing.data.stage,
           error: existing.data.status === 'running'
@@ -300,7 +302,7 @@ const handler = {
       }
     }
 
-    const budget = await ctx.supabase.rpc('consume_ai_budget', {
+    const budget = await db.rpc('consume_ai_budget', {
       p_project_id: project.id,
       p_kind: 'reasoning',
       p_units: 1,
@@ -316,7 +318,7 @@ const handler = {
     }
 
     const userId = String(ctx.userClaims?.id ?? ctx.jwtClaims?.sub ?? '') || null
-    const { data: job, error: jobError } = await ctx.supabase
+    const { data: job, error: jobError } = await db
       .from('research_jobs')
       .insert({
         workspace_id: project.workspace_id,
@@ -337,7 +339,7 @@ const handler = {
 
     const discoveryTask = (async () => {
       try {
-        await ctx.supabase.from('research_jobs').update({ progress: 25, stage: 'researching_competitor_universe' }).eq('id', job.id)
+        await db.from('research_jobs').update({ progress: 25, stage: 'researching_competitor_universe' }).eq('id', job.id)
 
       const openai = new OpenAI({ apiKey })
       const input = {
@@ -437,7 +439,7 @@ RULES
         },
       })
 
-      await recordOpenAIUsage(ctx.supabase, response, {
+      await recordOpenAIUsage(db, response, {
         workspaceId: project.workspace_id,
         projectId: project.id,
         researchJobId: job.id,
@@ -489,7 +491,7 @@ RULES
           },
         })
 
-        await recordOpenAIUsage(ctx.supabase, response, {
+        await recordOpenAIUsage(db, response, {
           workspaceId: project.workspace_id,
           projectId: project.id,
           researchJobId: job.id,
@@ -558,7 +560,7 @@ RULES
       let storedSources: Array<{ id: string; url: string }> = []
 
       if (dedupedEvidence.length) {
-        const stored = await ctx.supabase
+        const stored = await db
           .from('research_sources')
           .upsert(dedupedEvidence, { onConflict: 'project_id,url' })
           .select('id,url')
@@ -570,7 +572,7 @@ RULES
       const sourceIdByUrl = new Map(storedSources.map((source) => [source.url, source.id]))
 
       if (body.regenerate) {
-        await ctx.supabase
+        await db
           .from('competitor_candidates')
           .update({ is_current: false })
           .eq('buyer_intent_id', intent.id)
@@ -608,7 +610,7 @@ RULES
       }> = []
 
       if (rows.length) {
-        const result = await ctx.supabase
+        const result = await db
           .from('competitor_candidates')
           .insert(rows)
           .select('id,company_name,domain,relationship,discovery_layer,evidence_strength,source_refs')
@@ -630,9 +632,9 @@ RULES
         }))
       })
 
-      if (links.length) await ctx.supabase.from('evidence_links').insert(links)
+      if (links.length) await db.from('evidence_links').insert(links)
 
-      await ctx.supabase.from('research_jobs').update({
+      await db.from('research_jobs').update({
         status: 'succeeded',
         progress: 100,
         stage: 'competitors_ready',
@@ -652,7 +654,7 @@ RULES
         completed_at: new Date().toISOString(),
       }).eq('id', job.id)
 
-      await ctx.supabase.from('audit_events').insert({
+      await db.from('audit_events').insert({
         workspace_id: project.workspace_id,
         project_id: project.id,
         actor_user_id: userId,
@@ -666,7 +668,7 @@ RULES
         return
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Unknown competitor-discovery error'
-        await ctx.supabase.from('research_jobs').update({
+        await db.from('research_jobs').update({
           status: 'failed',
           stage: 'competitor_discovery_failed',
           error: { message, model },
