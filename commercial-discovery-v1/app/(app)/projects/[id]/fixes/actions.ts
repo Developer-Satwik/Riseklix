@@ -28,6 +28,28 @@ const taskStatusSchema = z.object({
   notes: z.string().trim().max(2000).optional().or(z.literal('')),
 })
 
+async function edgeFunctionErrorMessage(error: unknown) {
+  const candidate = error as { message?: string; context?: unknown } | null
+  const fallback = candidate?.message || 'Blueprint generation failed'
+  const context = candidate?.context
+
+  if (context instanceof Response) {
+    try {
+      const payload = await context.clone().json() as { error?: string; message?: string }
+      return payload?.message || payload?.error || fallback
+    } catch {
+      try {
+        const body = await context.clone().text()
+        return body || fallback
+      } catch {
+        return fallback
+      }
+    }
+  }
+
+  return fallback
+}
+
 async function auth() {
   const supabase = await createClient()
   const { data, error } = await supabase.auth.getClaims()
@@ -53,7 +75,10 @@ export async function generateBlueprint(formData: FormData) {
     },
   })
 
-  if (error) redirect(`/projects/${parsed.data.project_id}/fixes?error=${encodeURIComponent(error.message)}`)
+  if (error) {
+    const detail = await edgeFunctionErrorMessage(error)
+    redirect(`/projects/${parsed.data.project_id}/fixes?error=${encodeURIComponent(detail)}`)
+  }
   if (data?.error) {
     const message = data.error === 'reasoning_provider_not_configured'
       ? 'Blueprint Generator is deployed, but its reasoning-provider secret is not configured yet.'
