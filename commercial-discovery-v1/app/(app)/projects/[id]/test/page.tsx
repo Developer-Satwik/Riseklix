@@ -55,7 +55,7 @@ export default async function TestPage({ params, searchParams }: { params: Promi
         <div>
           <div className="eyebrow">RUN THE APPROVED QUESTIONS</div>
           <h1>Test</h1>
-          <p>This is where approved buyer questions become a controlled baseline. Riseklix freezes the exact wording, then runs the same questions independently across OpenAI, Gemini, Claude and Perplexity surfaces.</p>
+          <p>This is where approved buyer questions become a controlled baseline. Riseklix freezes the exact wording, then runs the same questions independently across the AI observation surfaces configured for this benchmark.</p>
         </div>
       </section>
 
@@ -73,7 +73,7 @@ export default async function TestPage({ params, searchParams }: { params: Promi
             <div>
               <div className="eyebrow">READY TO TEST</div>
               <h2>{eligibleIntentIds.size ? `${eligibleQuestions.length} approved questions across ${eligibleIntentIds.size} Buyer Situation${eligibleIntentIds.size === 1 ? '' : 's'}` : 'Your approved set is not complete yet.'}</h2>
-              <p>{eligibleIntentIds.size ? 'Each admitted Buyer Situation has at least one unaided buyer question and one aided brand check. Creating the baseline freezes these exact questions so every AI surface receives the same wording.' : 'A Buyer Situation needs both an approved buyer question and an approved brand check before it can enter the baseline.'}</p>
+              <p>{eligibleIntentIds.size ? 'Each admitted Buyer Situation has at least one unaided buyer question and one aided brand check. Creating the baseline freezes these exact questions so every configured AI surface receives the same wording.' : 'A Buyer Situation needs both an approved buyer question and an approved brand check before it can enter the baseline.'}</p>
             </div>
             {eligibleIntentIds.size ? (
               <form action={runApprovedQuestions}>

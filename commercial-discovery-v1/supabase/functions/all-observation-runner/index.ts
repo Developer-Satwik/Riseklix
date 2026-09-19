@@ -1,10 +1,9 @@
 import { withSupabase } from 'npm:@supabase/server'
+import { MIN_USABLE_PROVIDERS, observationProviderReadiness } from '../_shared/observation-provider-readiness.ts'
 
 declare const EdgeRuntime: { waitUntil(promise: Promise<unknown>): void }
 
 type RequestBody = { project_id?: string; benchmark_id?: string }
-
-const MIN_USABLE_PROVIDERS = 3
 
 async function continueAutopilot(req: Request, projectId: string) {
   const authHeader = req.headers.get('Authorization')
@@ -81,6 +80,61 @@ const handler = {
     const anonKey = Deno.env.get('SUPABASE_ANON_KEY')
     if (!authHeader || !supabaseUrl) return json({ error: 'Edge Function runtime is missing authenticated invocation context' }, 500)
 
+    const providerReadiness = observationProviderReadiness()
+    const configuredProviderSet = new Set(
+      providerReadiness.filter((item) => item.configured).map((item) => String(item.provider)),
+    )
+
+    const { data: declaredSurfaceRows, error: declaredSurfaceError } = await db
+      .from('benchmark_surfaces')
+      .select('id,provider,status,enabled,metadata')
+      .eq('benchmark_id', benchmark.id)
+      .eq('enabled', true)
+
+    if (declaredSurfaceError) {
+      return json({ error: 'provider_preflight_failed', message: declaredSurfaceError.message }, 500)
+    }
+
+    const declaredSurfaces = declaredSurfaceRows ?? []
+    const configuredSurfaceProviders = Array.from(new Set(
+      declaredSurfaces
+        .filter((surface) => configuredProviderSet.has(String(surface.provider)))
+        .map((surface) => String(surface.provider)),
+    ))
+
+    if (configuredSurfaceProviders.length < MIN_USABLE_PROVIDERS) {
+      const unavailableProviders = declaredSurfaces
+        .filter((surface) => !configuredProviderSet.has(String(surface.provider)))
+        .map((surface) => String(surface.provider))
+
+      return json({
+        error: 'insufficient_observation_providers',
+        message: `Riseklix needs at least ${MIN_USABLE_PROVIDERS} configured AI systems before starting a cross-model benchmark. ${configuredSurfaceProviders.length} ${configuredSurfaceProviders.length === 1 ? 'is' : 'are'} currently configured for this panel.`,
+        minimum_required: MIN_USABLE_PROVIDERS,
+        configured_providers: configuredSurfaceProviders,
+        unavailable_providers: unavailableProviders,
+      }, 503)
+    }
+
+    const unavailableSurfaces = declaredSurfaces.filter(
+      (surface) => !configuredProviderSet.has(String(surface.provider)) && !['complete','failed'].includes(String(surface.status)),
+    )
+    if (unavailableSurfaces.length) {
+      const checkedAt = new Date().toISOString()
+      await Promise.all(unavailableSurfaces.map((surface) =>
+        db.from('benchmark_surfaces').update({
+          status: 'failed',
+          completed_at: checkedAt,
+          metadata: {
+            ...record(surface.metadata),
+            provider_availability: 'not_configured_at_collection_start',
+            provider_preflight_checked_at: checkedAt,
+            last_error: 'This provider was not configured when collection started. No provider call was made.',
+          },
+        }).eq('id', surface.id)
+      ))
+    }
+
     const userId = String(ctx.userClaims?.id ?? ctx.jwtClaims?.sub ?? '') || null
     const { data: job, error: jobError } = await db.from('research_jobs').insert({
       workspace_id: project.workspace_id,
@@ -91,7 +145,14 @@ const handler = {
       progress: 1,
       stage: 'multi_surface_observation',
       idempotency_key: 'multi-surface:' + benchmark.id + ':' + crypto.randomUUID(),
-      input: { benchmark_id: benchmark.id, mode: 'all_enabled_surfaces' },
+      input: {
+        benchmark_id: benchmark.id,
+        mode: 'all_enabled_surfaces',
+        configured_providers_at_start: configuredSurfaceProviders,
+        unavailable_providers_at_start: declaredSurfaces
+          .filter((surface) => !configuredProviderSet.has(String(surface.provider)))
+          .map((surface) => String(surface.provider)),
+      },
       started_at: new Date().toISOString(),
     }).select('id').single()
 
@@ -114,7 +175,7 @@ const handler = {
       const configured = surfaceRows.data ?? []
       const runnablePlans = providerPlans.filter((plan) =>
         configured.some((surface) => {
-          if (surface.provider !== plan.provider || surface.status === 'complete' || !surface.enabled) return false
+          if (!configuredProviderSet.has(plan.provider) || surface.provider !== plan.provider || ['complete','failed'].includes(surface.status) || !surface.enabled) return false
           const failures = Number(record(surface.metadata).orchestration_failures || 0)
           return failures < 2
         })

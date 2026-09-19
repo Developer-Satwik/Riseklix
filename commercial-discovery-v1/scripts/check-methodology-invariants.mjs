@@ -39,6 +39,8 @@ const notificationSetting = read('components/analysis-notification-setting.tsx')
 const processingClient = read('components/autopilot-processing-client.tsx')
 const completionNotifier = read('components/analysis-completion-notifier.tsx')
 const autopilotIntentSelection = read('supabase/functions/_shared/autopilot-intent-selection.ts')
+const providerReadiness = read('supabase/functions/_shared/observation-provider-readiness.ts')
+const providerPreflight = read('supabase/functions/observation-provider-preflight/index.ts')
 
 requireText(
   report,
@@ -51,9 +53,19 @@ requireText(
   'WHY evidence must exclude providers outside the usable benchmark set.',
 )
 requireText(
+  providerReadiness,
+  'export const MIN_USABLE_PROVIDERS = 3',
+  'Provider readiness must retain the three-provider minimum.',
+)
+requireText(
   observation,
-  'const MIN_USABLE_PROVIDERS = 3',
-  'Benchmark completion must retain the three-provider minimum.',
+  'configuredSurfaceProviders.length < MIN_USABLE_PROVIDERS',
+  'Observation collection must refuse to spend provider calls when fewer than three configured systems are available.',
+)
+requireText(
+  observation,
+  "provider_availability: 'not_configured_at_collection_start'",
+  'A declared provider that is unavailable at collection start must be recorded as an excluded provider outcome.',
 )
 requireText(
   observation,
@@ -141,6 +153,46 @@ requireText(
   testActions,
   "expression.mode !== 'unaided' || isUnaidedRetrievalEligible(expression.prompt_text)",
   'Manual test baseline creation must exclude informational unaided prompts.',
+)
+requireText(
+  testActions,
+  "supabase.functions.invoke('observation-provider-preflight'",
+  'Manual baselines must preflight provider readiness before freezing a new panel.',
+)
+requireText(
+  testActions,
+  ".filter((surface) => configuredProviders.has(surface.provider))",
+  'Manual baselines must only declare provider surfaces that were configured at panel creation.',
+)
+requireText(
+  autopilot,
+  'surfacePreview.length < MIN_USABLE_PROVIDERS',
+  'Autopilot must refuse to create a benchmark when fewer than three provider surfaces are configured.',
+)
+requireText(
+  providerPreflight,
+  'configured_provider_count: configured.length',
+  'Provider preflight must expose configuration readiness without requiring a benchmark.',
+)
+requireText(
+  providerPreflight,
+  "withSupabase({ auth: ['user','secret'] }",
+  'Provider preflight must require an authenticated user or trusted worker context.',
+)
+requireText(
+  providerPreflight,
+  "const db = ctx.authMode === 'user' ? ctx.supabase : ctx.supabaseAdmin",
+  'Provider preflight must validate project access through the caller-scoped database client.',
+)
+requireText(
+  testActions,
+  "body: { project_id: projectId }",
+  'Manual provider preflight must be scoped to the project being benchmarked.',
+)
+forbidText(
+  providerPreflight,
+  'missingSecrets',
+  'Provider preflight responses must not expose secret names to the application client.',
 )
 requireText(
   recheckActionsSource,
