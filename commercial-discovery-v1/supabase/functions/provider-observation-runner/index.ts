@@ -2,6 +2,7 @@ import { withSupabase } from 'npm:@supabase/server'
 import OpenAI from 'npm:openai'
 import type { SupabaseClient } from 'npm:@supabase/supabase-js'
 import { firecrawlSearch, type FirecrawlDocument } from '../_shared/firecrawl.ts'
+import { openAIPromptCacheKey, recordOpenAIUsage } from '../_shared/openai-usage.ts'
 
 type Provider = 'google' | 'anthropic' | 'perplexity'
 type RequestBody = { project_id?: string; benchmark_id?: string; provider?: Provider; max_runs?: number }
@@ -28,6 +29,14 @@ type ProviderAnswer = {
   answer: string
   citations: Array<Record<string, unknown>>
   metadata: Record<string, unknown>
+}
+
+type BatchExtractionItem = Extraction & { key: string }
+
+type PendingCapture = {
+  plan: PlannedRun
+  providerAnswer: ProviderAnswer
+  competitorNames: string[]
 }
 
 const PROVIDERS: Record<Provider, {
@@ -86,12 +95,75 @@ function openAIOutputText(response: unknown) {
   return ''
 }
 
-async function extractBrands(openai: OpenAI | null, model: string, answer: string, targetCompany: string, competitorNames: string[]): Promise<Extraction> {
-  if (!openai) {
-    const mentioned = answer.toLowerCase().includes(targetCompany.toLowerCase())
-    return { brands: [], target_mentioned: mentioned, target_in_recommended_set: false, target_rank: null, answer_type: 'other' }
-  }
+async function extractBrandsBatch(
+  openai: OpenAI,
+  model: string,
+  items: Array<{ key: string; answer: string; targetCompany: string; competitorNames: string[] }>,
+  projectId: string,
+) {
+  const extractionProperties = {
+    brands: {
+      type: 'array',
+      items: {
+        type: 'object', additionalProperties: false,
+        required: ['name','order','in_recommended_set'],
+        properties: {
+          name: { type: 'string' },
+          order: { type: 'integer', minimum: 1 },
+          in_recommended_set: { type: 'boolean' },
+        },
+      },
+    },
+    target_mentioned: { type: 'boolean' },
+    target_in_recommended_set: { type: 'boolean' },
+    target_rank: { anyOf: [{ type: 'integer', minimum: 1 }, { type: 'null' }] },
+    answer_type: { type: 'string', enum: ['ranked_list','shortlist','comparison','narrative','other'] },
+  } as const
 
+  const schema = {
+    type: 'object',
+    additionalProperties: false,
+    required: ['items'],
+    properties: {
+      items: {
+        type: 'array',
+        maxItems: 8,
+        items: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['key','brands','target_mentioned','target_in_recommended_set','target_rank','answer_type'],
+          properties: { key: { type: 'string' }, ...extractionProperties },
+        },
+      },
+    },
+  } as const
+
+  const response = await openai.responses.create({
+    model,
+    reasoning: { effort: 'none' },
+    prompt_cache_key: openAIPromptCacheKey(projectId, 'brand-extraction'),
+    prompt_cache_options: { mode: 'implicit', ttl: '30m' },
+    instructions: `Extract commercial provider mentions from several already-produced AI answers.
+
+Do not add, infer or correct brands. Process each item independently. A brand is in_recommended_set only if that answer actually recommends, shortlists, proposes or presents it as a provider/option for the buyer request. Mere background mention, citation source, comparison reference or prompt-provided target name does not count. Order is response order among identifiable brands in the recommended set. target_rank must be null unless the target is in that set. Return one result for every supplied key.`,
+    input: JSON.stringify(items),
+    text: { format: { type: 'json_schema', name: 'riseklix_brand_extraction_batch', strict: true, schema } },
+  })
+
+  const raw = openAIOutputText(response)
+  if (!raw) throw new Error('Batch brand extractor returned no output')
+  const parsed = JSON.parse(raw) as { items: BatchExtractionItem[] }
+  return { response, items: parsed.items }
+}
+
+async function extractBrandsFallback(
+  openai: OpenAI,
+  model: string,
+  answer: string,
+  targetCompany: string,
+  competitorNames: string[],
+  projectId: string,
+) {
   const schema = {
     type: 'object', additionalProperties: false,
     required: ['brands','target_mentioned','target_in_recommended_set','target_rank','answer_type'],
@@ -118,11 +190,11 @@ async function extractBrands(openai: OpenAI | null, model: string, answer: strin
   const response = await openai.responses.create({
     model,
     reasoning: { effort: 'none' },
+    prompt_cache_key: openAIPromptCacheKey(projectId, 'brand-extraction-fallback'),
+    prompt_cache_options: { mode: 'implicit', ttl: '30m' },
     instructions: `Extract commercial provider mentions from an already-produced AI answer. Do not add, infer or correct brands.
 
-A brand is in_recommended_set only if the answer actually recommends, shortlists, proposes or presents it as a provider/option for the user's buying request. Mere background mention, citation source, comparison reference or prompt-provided target name does not count.
-
-Order means response order among identifiable brands in the recommended/shortlisted provider set. target_rank must be null unless the target is in that set.`,
+A brand is in_recommended_set only if the answer actually recommends, shortlists, proposes or presents it as a provider/option for the user's buying request. Mere background mention, citation source, comparison reference or prompt-provided target name does not count. Order means response order among identifiable brands in the recommended/shortlisted provider set. target_rank must be null unless the target is in that set.`,
     input: `Target company: ${targetCompany}
 Known intent-specific competitors (matching aid only; do not force them): ${competitorNames.join(', ')}
 
@@ -133,7 +205,7 @@ ${answer}`,
 
   const raw = openAIOutputText(response)
   if (!raw) throw new Error('Brand extractor returned no output')
-  return JSON.parse(raw) as Extraction
+  return { response, extraction: JSON.parse(raw) as Extraction }
 }
 
 async function runGoogle(prompt: string, apiKey: string, model: string): Promise<ProviderAnswer> {
@@ -533,6 +605,7 @@ const handler = {
     let captured = 0
     let failed = 0
     const anthropicGroundingCache = new Map<string, Promise<FirecrawlDocument[]>>()
+    const pendingCaptures: PendingCapture[] = []
 
     for (let index = 0; index < batch.length; index++) {
       const plan = batch[index]
@@ -564,50 +637,7 @@ const handler = {
           providerAnswer = await runPerplexity(plan.promptText, providerKey, observationModel)
         }
 
-        let extraction: Extraction
-        try {
-          extraction = await extractBrands(openai, extractionModel, providerAnswer.answer, profile.company_name, competitorNames)
-        } catch {
-          const mentioned = providerAnswer.answer.toLowerCase().includes(profile.company_name.toLowerCase())
-          extraction = { brands: [], target_mentioned: mentioned, target_in_recommended_set: false, target_rank: null, answer_type: 'other' }
-        }
-
-        const { error: insertError } = await ctx.supabase.from('observation_runs').upsert({
-          workspace_id: project.workspace_id,
-          project_id: project.id,
-          benchmark_id: benchmark.id,
-          buyer_intent_id: plan.buyerIntentId,
-          prompt_expression_id: plan.promptId,
-          provider,
-          surface: providerConfig.surface,
-          model_label: observationModel,
-          repetition: plan.repetition,
-          language: plan.language,
-          geography: project.market,
-          session_state: { fresh_session: true, prior_context: false },
-          search_mode: provider === 'anthropic' ? 'firecrawl_search_grounding' : 'provider_web_grounding',
-          run_status: 'captured',
-          retrieval_status: extraction.target_in_recommended_set ? 'retrieved' : 'nr',
-          target_rank: extraction.target_rank,
-          raw_answer: providerAnswer.answer,
-          extracted_brands: extraction.brands,
-          citations: providerAnswer.citations,
-          claims: [],
-          metadata: {
-            prompt_mode: plan.mode,
-            extraction_model: openai ? extractionModel : null,
-            target_mentioned: extraction.target_mentioned,
-            target_in_recommended_set: extraction.target_in_recommended_set,
-            answer_type: extraction.answer_type,
-            provider_metadata: providerAnswer.metadata,
-            methodology_note: providerConfig.methodology,
-          },
-          captured_at: new Date().toISOString(),
-          error_message: null,
-        }, { onConflict: 'benchmark_id,prompt_expression_id,provider,surface,repetition' })
-
-        if (insertError) throw insertError
-        captured++
+        pendingCaptures.push({ plan, providerAnswer, competitorNames })
       } catch (error) {
         failed++
         const message = error instanceof Error ? error.message : 'Unknown observation error'
@@ -638,10 +668,155 @@ const handler = {
       }
 
       await ctx.supabase.from('research_jobs').update({
-        progress: Math.round(((index + 1) / batch.length) * 100),
+        progress: Math.max(5, Math.round(((index + 1) / batch.length) * 70)),
         stage: `${provider}_observation_${index + 1}_of_${batch.length}`,
       }).eq('id', job.id)
     }
+
+    const extractionByKey = new Map<string, Extraction>()
+
+    if (pendingCaptures.length && openai) {
+      const extractionItems = pendingCaptures.map((item) => ({
+        key: `${item.plan.promptId}:${item.plan.repetition}`,
+        answer: item.providerAnswer.answer,
+        targetCompany: profile.company_name,
+        competitorNames: item.competitorNames,
+      }))
+
+      try {
+        const batchExtraction = await extractBrandsBatch(openai, extractionModel, extractionItems, project.id)
+        await recordOpenAIUsage(ctx.supabase, batchExtraction.response, {
+          workspaceId: project.workspace_id,
+          projectId: project.id,
+          researchJobId: job.id,
+          stage: 'brand_extraction_batch',
+          model: extractionModel,
+          metadata: {
+            benchmark_id: benchmark.id,
+            source_provider: provider,
+            answer_count: pendingCaptures.length,
+          },
+        })
+        for (const item of batchExtraction.items) extractionByKey.set(item.key, item)
+      } catch {
+        // Individual fallback below preserves extraction quality only where needed.
+      }
+    }
+
+    for (const item of pendingCaptures) {
+      const key = `${item.plan.promptId}:${item.plan.repetition}`
+      let extraction = extractionByKey.get(key)
+
+      if (!extraction && openai) {
+        try {
+          const fallback = await extractBrandsFallback(
+            openai,
+            extractionModel,
+            item.providerAnswer.answer,
+            profile.company_name,
+            item.competitorNames,
+            project.id,
+          )
+
+          await recordOpenAIUsage(ctx.supabase, fallback.response, {
+            workspaceId: project.workspace_id,
+            projectId: project.id,
+            researchJobId: job.id,
+            stage: 'brand_extraction_fallback',
+            model: extractionModel,
+            metadata: {
+              benchmark_id: benchmark.id,
+              source_provider: provider,
+              prompt_expression_id: item.plan.promptId,
+              repetition: item.plan.repetition,
+            },
+          })
+          extraction = fallback.extraction
+        } catch {
+          // Deterministic mention fallback below.
+        }
+      }
+
+      if (!extraction) {
+        const mentioned = item.providerAnswer.answer.toLowerCase().includes(profile.company_name.toLowerCase())
+        extraction = {
+          brands: [],
+          target_mentioned: mentioned,
+          target_in_recommended_set: false,
+          target_rank: null,
+          answer_type: 'other',
+        }
+      }
+
+      const { error: insertError } = await ctx.supabase.from('observation_runs').upsert({
+        workspace_id: project.workspace_id,
+        project_id: project.id,
+        benchmark_id: benchmark.id,
+        buyer_intent_id: item.plan.buyerIntentId,
+        prompt_expression_id: item.plan.promptId,
+        provider,
+        surface: providerConfig.surface,
+        model_label: observationModel,
+        repetition: item.plan.repetition,
+        language: item.plan.language,
+        geography: project.market,
+        session_state: { fresh_session: true, prior_context: false },
+        search_mode: provider === 'anthropic' ? 'firecrawl_search_grounding' : 'provider_web_grounding',
+        run_status: 'captured',
+        retrieval_status: extraction.target_in_recommended_set ? 'retrieved' : 'nr',
+        target_rank: extraction.target_rank,
+        raw_answer: item.providerAnswer.answer,
+        extracted_brands: extraction.brands,
+        citations: item.providerAnswer.citations,
+        claims: [],
+        metadata: {
+          prompt_mode: item.plan.mode,
+          extraction_model: openai ? extractionModel : null,
+          target_mentioned: extraction.target_mentioned,
+          target_in_recommended_set: extraction.target_in_recommended_set,
+          answer_type: extraction.answer_type,
+          provider_metadata: item.providerAnswer.metadata,
+          methodology_note: providerConfig.methodology,
+        },
+        captured_at: new Date().toISOString(),
+        error_message: null,
+      }, { onConflict: 'benchmark_id,prompt_expression_id,provider,surface,repetition' })
+
+      if (insertError) {
+        failed++
+        await ctx.supabase.from('observation_runs').upsert({
+          workspace_id: project.workspace_id,
+          project_id: project.id,
+          benchmark_id: benchmark.id,
+          buyer_intent_id: item.plan.buyerIntentId,
+          prompt_expression_id: item.plan.promptId,
+          provider,
+          surface: providerConfig.surface,
+          model_label: observationModel,
+          repetition: item.plan.repetition,
+          language: item.plan.language,
+          geography: project.market,
+          session_state: { fresh_session: true, prior_context: false },
+          search_mode: provider === 'anthropic' ? 'firecrawl_search_grounding' : 'provider_web_grounding',
+          run_status: 'error',
+          retrieval_status: 'unknown',
+          raw_answer: null,
+          extracted_brands: [],
+          citations: [],
+          claims: [],
+          metadata: { prompt_mode: item.plan.mode, methodology_note: 'Capture storage failed; no NR inference made.' },
+          error_message: insertError.message,
+          captured_at: null,
+        }, { onConflict: 'benchmark_id,prompt_expression_id,provider,surface,repetition' })
+      } else {
+        captured++
+      }
+    }
+
+    await ctx.supabase.from('research_jobs').update({
+      progress: 90,
+      stage: `${provider}_extraction_complete`,
+    }).eq('id', job.id)
 
     const { data: allRuns } = await ctx.supabase
       .from('observation_runs')
