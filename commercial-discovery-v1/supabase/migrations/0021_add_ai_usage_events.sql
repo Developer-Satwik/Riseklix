@@ -10,6 +10,7 @@ create table if not exists public.ai_usage_events (
   service_tier text not null default 'standard',
   input_tokens bigint not null default 0,
   cached_input_tokens bigint not null default 0,
+  cache_write_tokens bigint not null default 0,
   output_tokens bigint not null default 0,
   reasoning_tokens bigint not null default 0,
   total_tokens bigint not null default 0,
