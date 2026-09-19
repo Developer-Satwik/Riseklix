@@ -94,6 +94,26 @@ async function ensureBaseline(projectId: string) {
     redirect('/projects/' + projectId + '/buyer-situations?error=' + encodeURIComponent('Approve at least one buyer question and one brand check under the same Buyer Situation before running tests'))
   }
 
+  const { data: providerPreflight, error: providerPreflightError } = await supabase.functions.invoke('observation-provider-preflight', {
+    body: {},
+  })
+  if (providerPreflightError) {
+    const detail = await edgeFunctionErrorMessage(providerPreflightError)
+    redirect('/projects/' + projectId + '/test?error=' + encodeURIComponent('Could not verify AI-system readiness: ' + detail))
+  }
+
+  const configuredProviders = new Set<string>(
+    Array.isArray(providerPreflight?.configured_providers)
+      ? providerPreflight.configured_providers.map((provider: unknown) => String(provider))
+      : [],
+  )
+  const minimumProviders = Number(providerPreflight?.minimum_required || 3)
+  if (!providerPreflight?.ready || configuredProviders.size < minimumProviders) {
+    redirect('/projects/' + projectId + '/test?error=' + encodeURIComponent(
+      `Riseklix needs at least ${minimumProviders} configured AI systems before creating a cross-model baseline. ${configuredProviders.size} ${configuredProviders.size === 1 ? 'is' : 'are'} configured right now.`,
+    ))
+  }
+
   const languages = Array.from(new Set(selected.map((item) => item.language))
   )
   const repetitions = 3
@@ -117,6 +137,7 @@ async function ensureBaseline(projectId: string) {
       notes: 'Baseline created automatically when the user runs approved buyer questions. Criteria-only unaided questions are excluded from retrieval denominators.',
       retrieval_eligibility_policy: 'unaided prompts must ask for identifiable commercial options',
       excluded_unaided_prompt_count: excludedUnaided.length,
+      configured_providers_at_start: Array.from(configuredProviders),
     },
   }).select('id').single()
 
@@ -212,7 +233,7 @@ async function ensureBaseline(projectId: string) {
         consumer_equivalence: 'approximate',
       },
     },
-  ]
+  ].filter((surface) => configuredProviders.has(surface.provider))
 
   const { error: surfaceError } = await supabase.from('benchmark_surfaces').insert(surfaceRows)
   if (surfaceError) {
