@@ -404,36 +404,96 @@ const handler = {
     }
 
     const intentIds = approvedIntents.map((intent) => intent.id)
-    const { data: competitors } = await ctx.supabase
-      .from('competitor_candidates')
-      .select('buyer_intent_id,status,is_current')
-      .in('buyer_intent_id', intentIds)
-      .eq('is_current', true)
-      .eq('status', 'verified')
+    const [{ data: competitors }, { data: competitorJobs }] = await Promise.all([
+      ctx.supabase
+        .from('competitor_candidates')
+        .select('buyer_intent_id,status,is_current')
+        .in('buyer_intent_id', intentIds)
+        .eq('is_current', true)
+        .eq('status', 'verified'),
+      ctx.supabase
+        .from('research_jobs')
+        .select('id,status,input,error,created_at')
+        .eq('project_id', project.id)
+        .eq('job_type', 'competitor_discovery')
+        .order('created_at', { ascending: false })
+        .limit(100),
+    ])
 
     const competitorReady = new Set((competitors ?? []).map((item) => item.buyer_intent_id))
-    const nextCompetitorIntent = approvedIntents.find((intent) => !competitorReady.has(intent.id))
-    if (nextCompetitorIntent) {
-      const readyCount = competitorReady.size
-      const progress = 30 + Math.round((readyCount / approvedIntents.length) * 22)
-      const state = await shouldWaitOrPause('competitor_discovery', nextCompetitorIntent.id, 'researching_competitors', progress)
-      if (state.response) return state.response
+    const jobsByIntent = new Map<string, Array<Record<string, unknown>>>()
 
-      try {
-        await updateRun({
-          stage: 'researching_competitors',
-          progress,
-          metadata: { ...record(run.metadata), current_intent_id: nextCompetitorIntent.id },
-        })
-        await invoke('competitor-discovery', {
-          project_id: project.id,
-          intent_id: nextCompetitorIntent.id,
-          regenerate: false,
-        })
-        return await release('researching_competitors', progress)
-      } catch (error) {
-        return await pause('researching_competitors_paused', progress, error instanceof Error ? error.message : 'Competitor research failed')
+    for (const job of competitorJobs ?? []) {
+      const jobRecord = job as unknown as Record<string, unknown>
+      const intentId = String(record(job.input).intent_id || '')
+      if (!intentId || !intentIds.includes(intentId)) continue
+      const list = jobsByIntent.get(intentId) ?? []
+      list.push(jobRecord)
+      jobsByIntent.set(intentId, list)
+
+      if (job.status === 'succeeded') competitorReady.add(intentId)
+
+      // Older runs treated a narrow/no-candidate universe as a hard failure.
+      // Preserve those completed research attempts as terminal so Autopilot
+      // does not keep paying to rediscover an intentionally narrow market.
+      const message = String(record(job.error).message || '')
+      if (job.status === 'failed' && message.includes('did not produce enough evidence-backed candidates')) {
+        competitorReady.add(intentId)
       }
+    }
+
+    const missingCompetitorIntents = approvedIntents.filter((intent) => !competitorReady.has(intent.id))
+    if (missingCompetitorIntents.length) {
+      const readyCount = approvedIntents.length - missingCompetitorIntents.length
+      const progress = 30 + Math.round((readyCount / approvedIntents.length) * 22)
+      const launchable: typeof approvedIntents = []
+      let activeCount = 0
+
+      for (const intent of missingCompetitorIntents) {
+        const jobs = jobsByIntent.get(intent.id) ?? []
+        const active = jobs.find((job) => job.status === 'running' || job.status === 'queued')
+        if (active) {
+          activeCount++
+          continue
+        }
+
+        const failures = jobs.filter((job) => job.status === 'failed')
+        if (failures.length >= MAX_STAGE_FAILURES) {
+          const latestError = record(failures[0]?.error)
+          return await pause(
+            'researching_competitors_paused',
+            progress,
+            String(latestError.message || 'Competitor research failed twice. Autopilot paused instead of retrying indefinitely.'),
+          )
+        }
+
+        launchable.push(intent)
+      }
+
+      // Each discovery function returns as soon as its durable background job
+      // is scheduled, so launching several here makes the expensive research
+      // run concurrently instead of serially across Buyer Situations.
+      for (const intent of launchable.slice(0, AUTOPILOT_INTENT_LIMIT)) {
+        try {
+          await invoke('competitor-discovery', {
+            project_id: project.id,
+            intent_id: intent.id,
+            regenerate: false,
+          })
+        } catch (error) {
+          return await pause(
+            'researching_competitors_paused',
+            progress,
+            error instanceof Error ? error.message : 'Competitor research failed',
+          )
+        }
+      }
+
+      return await release('researching_competitors', progress, {
+        active_competitor_jobs: activeCount + launchable.length,
+        competitor_intents_ready: readyCount,
+        competitor_intents_total: approvedIntents.length,
+      })
     }
 
     const { data: promptRows } = await ctx.supabase
