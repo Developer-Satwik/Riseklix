@@ -4,6 +4,8 @@ declare const EdgeRuntime: { waitUntil(promise: Promise<unknown>): void }
 
 type RequestBody = { project_id?: string; benchmark_id?: string }
 
+const MIN_USABLE_PROVIDERS = 2
+
 async function continueAutopilot(req: Request, projectId: string) {
   const authHeader = req.headers.get('Authorization')
   const supabaseUrl = Deno.env.get('SUPABASE_URL')
@@ -229,7 +231,7 @@ const handler = {
       const expected = surfaces.reduce((sum, surface) => sum + Number(surface.expected_runs || 0), 0)
       const captured = surfaces.reduce((sum, surface) => sum + Number(surface.captured_runs || 0), 0)
       const allTerminal = surfaces.length > 0 && surfaces.every((surface) => ['complete','failed'].includes(surface.status))
-      const minimumUsableProviders = surfaces.length >= 2 ? 2 : surfaces.length
+      const minimumUsableProviders = MIN_USABLE_PROVIDERS
       const usableSurfaces = surfaces.filter((surface) => {
         const expectedRuns = Number(surface.expected_runs || 0)
         const capturedRuns = Number(surface.captured_runs || 0)
