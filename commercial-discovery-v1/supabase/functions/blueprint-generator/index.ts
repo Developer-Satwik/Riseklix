@@ -218,6 +218,44 @@ const handler = {
     const firstPartyUrls = new Set(firstPartySources.flatMap((source) => [source.url, source.url.replace(/\/$/, '')]))
 
     const model = Deno.env.get('RISEKLIX_BLUEPRINT_MODEL') || 'gpt-5.6-terra'
+    const idempotencyKey = `blueprint:${finding.id}:v${nextVersion}:${model}`
+
+    if (!body.regenerate) {
+      const existingJob = await ctx.supabase
+        .from('research_jobs')
+        .select('id,status,stage,progress,output,error')
+        .eq('project_id', project.id)
+        .eq('idempotency_key', idempotencyKey)
+        .maybeSingle()
+
+      if (existingJob.data && ['queued', 'running'].includes(existingJob.data.status)) {
+        return json({
+          pending: true,
+          reused: true,
+          job: existingJob.data,
+          message: 'Blueprint generation is already running for this finding.',
+        }, 202)
+      }
+
+      if (existingJob.data?.status === 'succeeded') {
+        const completedBlueprint = await ctx.supabase
+          .from('blueprints')
+          .select('id,version,title,status')
+          .eq('generation_job_id', existingJob.data.id)
+          .maybeSingle()
+
+        if (completedBlueprint.data) {
+          return json({ reused: true, blueprint: completedBlueprint.data })
+        }
+      }
+
+      if (existingJob.data?.status === 'failed') {
+        await ctx.supabase.from('research_jobs').update({
+          idempotency_key: idempotencyKey + ':failed:' + existingJob.data.id,
+        }).eq('id', existingJob.data.id)
+      }
+    }
+
     const budget = await ctx.supabase.rpc('consume_ai_budget', {
       p_project_id: project.id,
       p_kind: 'reasoning',
@@ -238,15 +276,36 @@ const handler = {
       workspace_id: project.workspace_id,
       project_id: project.id,
       created_by: userId,
-      job_type: 'blueprint_generation',
+      job_type: 'blueprint',
       status: 'running',
       progress: 15,
       stage: 'preparing_blueprint_evidence',
-      idempotency_key: `blueprint:${finding.id}:v${nextVersion}:${model}`,
+      idempotency_key: idempotencyKey,
       input: { finding_id: finding.id, buyer_intent_id: finding.buyer_intent_id, version: nextVersion, model },
       started_at: new Date().toISOString(),
     }).select('id').single()
-    if (jobError || !job) return json({ error: jobError?.message ?? 'Could not start Blueprint generation' }, 400)
+
+    if (jobError || !job) {
+      if (!body.regenerate) {
+        const raced = await ctx.supabase
+          .from('research_jobs')
+          .select('id,status,stage,progress,output,error')
+          .eq('project_id', project.id)
+          .eq('idempotency_key', idempotencyKey)
+          .maybeSingle()
+
+        if (raced.data && ['queued', 'running'].includes(raced.data.status)) {
+          return json({
+            pending: true,
+            reused: true,
+            job: raced.data,
+            message: 'Blueprint generation is already running for this finding.',
+          }, 202)
+        }
+      }
+
+      return json({ error: jobError?.message ?? 'Could not start Blueprint generation' }, 400)
+    }
 
     try {
       await ctx.supabase.from('research_jobs').update({ progress: 35, stage: 'generating_implementation_blueprint' }).eq('id', job.id)
