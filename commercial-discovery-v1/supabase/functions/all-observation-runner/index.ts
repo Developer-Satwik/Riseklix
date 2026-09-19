@@ -124,10 +124,12 @@ const handler = {
       await Promise.all(unavailableSurfaces.map((surface) =>
         db.from('benchmark_surfaces').update({
           status: 'failed',
+          completed_at: checkedAt,
           metadata: {
             ...record(surface.metadata),
             provider_availability: 'not_configured_at_collection_start',
             provider_preflight_checked_at: checkedAt,
+            last_error: 'This provider was not configured when collection started. No provider call was made.',
           },
         }).eq('id', surface.id)
       ))
