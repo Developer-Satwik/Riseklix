@@ -3,6 +3,7 @@
 import { redirect } from 'next/navigation'
 import { z } from 'zod'
 import { createClient } from '@/lib/supabase/server'
+import { isUnaidedRetrievalEligible } from '@/lib/prompt-eligibility'
 
 const schema = z.object({ project_id: z.string().uuid() })
 
@@ -61,7 +62,7 @@ async function ensureBaseline(projectId: string) {
 
   const { data: expressions, error: expressionError } = await supabase
     .from('prompt_expressions')
-    .select('id,buyer_intent_id,language,mode,status')
+    .select('id,buyer_intent_id,language,mode,status,prompt_text')
     .eq('project_id', projectId)
     .eq('status', 'approved')
 
@@ -69,8 +70,15 @@ async function ensureBaseline(projectId: string) {
     redirect('/projects/' + projectId + '/test?error=' + encodeURIComponent(expressionError.message))
   }
 
-  const grouped = new Map<string, typeof expressions>()
-  for (const expression of expressions ?? []) {
+  const admissibleExpressions = (expressions ?? []).filter((expression) =>
+    expression.mode !== 'unaided' || isUnaidedRetrievalEligible(expression.prompt_text)
+  )
+  const excludedUnaided = (expressions ?? []).filter((expression) =>
+    expression.mode === 'unaided' && !isUnaidedRetrievalEligible(expression.prompt_text)
+  )
+
+  const grouped = new Map<string, typeof admissibleExpressions>()
+  for (const expression of admissibleExpressions) {
     const items = grouped.get(expression.buyer_intent_id) ?? []
     items.push(expression)
     grouped.set(expression.buyer_intent_id, items)
@@ -106,7 +114,9 @@ async function ensureBaseline(projectId: string) {
       session_policy: 'fresh_session_each_run',
       geography: project.market,
       surface_policy: 'minimum_three_usable_providers; failed providers excluded from aggregate interpretation',
-      notes: 'Baseline created automatically when the user runs approved buyer questions.',
+      notes: 'Baseline created automatically when the user runs approved buyer questions. Criteria-only unaided questions are excluded from retrieval denominators.',
+      retrieval_eligibility_policy: 'unaided prompts must ask for identifiable commercial options',
+      excluded_unaided_prompt_count: excludedUnaided.length,
     },
   }).select('id').single()
 
@@ -230,6 +240,7 @@ async function ensureBaseline(projectId: string) {
         languages,
         configured_surfaces: surfaceRows.map((surface) => surface.surface),
         started_from: 'run_approved_questions',
+        excluded_unaided_prompt_count: excludedUnaided.length,
       },
     }),
     supabase.from('projects').update({ status: 'running', updated_at: new Date().toISOString() }).eq('id', project.id),

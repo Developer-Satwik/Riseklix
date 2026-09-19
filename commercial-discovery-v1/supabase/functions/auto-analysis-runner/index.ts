@@ -1,4 +1,5 @@
 import { withSupabase } from 'npm:@supabase/server'
+import { isUnaidedRetrievalEligible } from '../_shared/prompt-eligibility.ts'
 
 type RequestBody = { project_id?: string }
 
@@ -558,13 +559,17 @@ const handler = {
 
     const { data: approvedPrompts } = await db
       .from('prompt_expressions')
-      .select('id,buyer_intent_id,language,mode,status,is_frozen')
+      .select('id,buyer_intent_id,language,mode,status,is_frozen,prompt_text')
       .in('buyer_intent_id', intentIds)
       .eq('status', 'approved')
       .eq('language', project.primary_language)
 
+    const eligibleApprovedPrompts = (approvedPrompts ?? []).filter((prompt) =>
+      prompt.mode !== 'unaided' || isUnaidedRetrievalEligible(prompt.prompt_text)
+    )
+
     const modesByIntent = new Map<string, Set<string>>()
-    for (const prompt of approvedPrompts ?? []) {
+    for (const prompt of eligibleApprovedPrompts) {
       const modes = modesByIntent.get(prompt.buyer_intent_id) ?? new Set<string>()
       modes.add(prompt.mode)
       modesByIntent.set(prompt.buyer_intent_id, modes)
@@ -611,7 +616,7 @@ const handler = {
       .maybeSingle()
 
     if (!baseline) {
-      const selected = (approvedPrompts ?? []).slice(0, AUTOPILOT_PROMPT_LIMIT)
+      const selected = eligibleApprovedPrompts.slice(0, AUTOPILOT_PROMPT_LIMIT)
       if (!selected.length) return await pause('no_testable_questions', 70, 'Autopilot has no approved buyer questions to test.')
 
       const languages = Array.from(new Set(selected.map((prompt) => prompt.language)))
@@ -645,6 +650,7 @@ const handler = {
           surface_policy: 'minimum_three_usable_providers; failed providers excluded from aggregate interpretation',
           analysis_mode: 'autopilot',
           max_observation_runs: 120,
+          retrieval_eligibility_policy: 'unaided prompts must ask for identifiable commercial options',
         },
       }).select('id,status').single()
 

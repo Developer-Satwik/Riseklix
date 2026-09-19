@@ -3,6 +3,7 @@
 import { redirect } from 'next/navigation'
 import { z } from 'zod'
 import { createClient } from '@/lib/supabase/server'
+import { isUnaidedRetrievalEligible } from '@/lib/prompt-eligibility'
 
 const schema = z.object({ project_id: z.string().uuid() })
 const runSchema = schema.extend({ benchmark_id: z.string().uuid() })
@@ -56,13 +57,20 @@ export async function createBaselinePanel(formData: FormData) {
 
   const { data: expressions, error: expressionError } = await supabase
     .from('prompt_expressions')
-    .select('id,buyer_intent_id,language,mode,variant_no,status,is_frozen')
+    .select('id,buyer_intent_id,language,mode,variant_no,prompt_text,status,is_frozen')
     .eq('project_id', project.id)
     .eq('status', 'approved')
   if (expressionError) redirect(`/projects/${project.id}/recheck?error=${encodeURIComponent(expressionError.message)}`)
 
-  const grouped = new Map<string, typeof expressions>()
-  for (const expression of expressions ?? []) {
+  const admissibleExpressions = (expressions ?? []).filter((expression) =>
+    expression.mode !== 'unaided' || isUnaidedRetrievalEligible(expression.prompt_text)
+  )
+  const excludedUnaided = (expressions ?? []).filter((expression) =>
+    expression.mode === 'unaided' && !isUnaidedRetrievalEligible(expression.prompt_text)
+  )
+
+  const grouped = new Map<string, typeof admissibleExpressions>()
+  for (const expression of admissibleExpressions) {
     const current = grouped.get(expression.buyer_intent_id) ?? []
     current.push(expression)
     grouped.set(expression.buyer_intent_id, current)
@@ -94,7 +102,9 @@ export async function createBaselinePanel(formData: FormData) {
       session_policy: 'fresh_session_each_run',
       geography: project.market,
       surface_policy: 'minimum_three_usable_providers; failed providers excluded from aggregate interpretation',
-      notes: 'Baseline panel created from approved unaided + aided expressions. Each observation surface is tracked independently.',
+      notes: 'Baseline panel created from approved unaided + aided expressions. Criteria-only unaided questions are excluded from retrieval denominators. Each observation surface is tracked independently.',
+      retrieval_eligibility_policy: 'unaided prompts must ask for identifiable commercial options',
+      excluded_unaided_prompt_count: excludedUnaided.length,
     },
   }).select('id').single()
 
@@ -211,7 +221,7 @@ export async function createBaselinePanel(formData: FormData) {
     event_type: 'baseline_panel_created',
     entity_type: 'benchmark',
     entity_id: benchmark.id,
-    payload: { prompt_count: selected.length, intent_count: eligible.length, languages, configured_surfaces: surfaceRows.map((surface) => surface.surface) },
+    payload: { prompt_count: selected.length, intent_count: eligible.length, languages, configured_surfaces: surfaceRows.map((surface) => surface.surface), excluded_unaided_prompt_count: excludedUnaided.length },
   })
 
   await supabase.from('projects').update({ status: 'running', updated_at: new Date().toISOString() }).eq('id', project.id)

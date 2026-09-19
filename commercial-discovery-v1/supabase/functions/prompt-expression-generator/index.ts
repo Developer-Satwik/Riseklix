@@ -1,6 +1,7 @@
 import { withSupabase } from 'npm:@supabase/server'
 import OpenAI from 'npm:openai'
 import { openAIPromptCacheKey, recordOpenAIUsage } from '../_shared/openai-usage.ts'
+import { isUnaidedRetrievalEligible } from '../_shared/prompt-eligibility.ts'
 
 declare const EdgeRuntime: { waitUntil(promise: Promise<unknown>): void }
 
@@ -138,7 +139,7 @@ const handler = {
       .slice(0, 4)
       .map((item) => item.raw)
       .join(' | ')
-    const idempotencyKey = `prompt-expression:${intent.id}:v${intent.version}:${languages.join(',')}:${model}:aliases-v2`
+    const idempotencyKey = `prompt-expression:${intent.id}:v${intent.version}:${languages.join(',')}:${model}:aliases-v3-retrieval-eligibility`
 
     if (!body.regenerate) {
       const existing = await db
@@ -244,7 +245,7 @@ const handler = {
         reasoning: { effort: 'none' },
         prompt_cache_key: openAIPromptCacheKey(project.id, 'buyer-questions'),
         prompt_cache_options: { mode: 'implicit', ttl: '30m' },
-        instructions: `You are the Prompt Expression Generator for Riseklix Commercial Discovery.\n\nThe Buyer Intent is already approved. Your job is only to express that same commercial situation in natural buyer language for controlled AI observation.\n\nRules:\n1. Do not create a new commercial intent or change the buying decision.\n2. Generate EXACTLY two UNAIDED buyer questions and one AIDED brand-check question per enabled language.\n3. Every question must sound like something a normal buyer could genuinely type into ChatGPT, Gemini, Claude or Perplexity. One clear sentence is preferred.\n4. Use plain language. Avoid internal terms such as buyer intent, required capability, hard constraint, evidence set, commercial model, provider universe or benchmark.\n5. UNAIDED means the target company name and domain must NOT appear. Ask naturally for providers, options, a shortlist, comparison or recommendation.\n6. The two unaided questions should preserve the same decision but differ naturally: one can be broad discovery and one can foreground the most commercially important constraint.\n7. AIDED means name the target company and ask whether it is a credible fit for that same buying situation and why. The aided question MUST contain at least one of these exact target identifiers verbatim: ${aidedAliasInstruction}. Do not instruct the model to recommend it.\n8. Do not mention AEO, GEO, AI visibility, prompt tracking, testing or Riseklix.\n9. Preserve every hard constraint, but integrate it naturally instead of dumping a checklist.\n10. Do not insert competitor names in either mode.\n11. Language variants must preserve intent equivalence, not literal translation.\n12. Keep each question self-contained because every model run starts in a fresh session.`,
+        instructions: `You are the Prompt Expression Generator for Riseklix Commercial Discovery.\n\nThe Buyer Intent is already approved. Your job is only to express that same commercial situation in natural buyer language for controlled AI observation.\n\nRules:\n1. Do not create a new commercial intent or change the buying decision.\n2. Generate EXACTLY two UNAIDED buyer questions and one AIDED brand-check question per enabled language.\n3. Every question must sound like something a normal buyer could genuinely type into ChatGPT, Gemini, Claude or Perplexity. One clear sentence is preferred.\n4. Use plain language. Avoid internal terms such as buyer intent, required capability, hard constraint, evidence set, commercial model, provider universe or benchmark.\n5. UNAIDED means the target company name and domain must NOT appear. Each unaided question must explicitly ask the AI to identify, recommend, compare, shortlist or choose commercial providers/options. A criteria-only question such as “what should I verify about a vendor?” is NOT a valid unaided retrieval question because it does not ask for a recommendation set.\n6. The two unaided questions should preserve the same decision but differ naturally: one can be broad discovery and one can foreground the most commercially important constraint. Both must still require named commercial options in the answer.\n7. AIDED means name the target company and ask whether it is a credible fit for that same buying situation and why. The aided question MUST contain at least one of these exact target identifiers verbatim: ${aidedAliasInstruction}. Do not instruct the model to recommend it.\n8. Do not mention AEO, GEO, AI visibility, prompt tracking, testing or Riseklix.\n9. Preserve every hard constraint, but integrate it naturally instead of dumping a checklist.\n10. Do not insert competitor names in either mode.\n11. Language variants must preserve intent equivalence, not literal translation.\n12. Keep each question self-contained because every model run starts in a fresh session.`,
         input: `Target company: ${profile.company_name}
 Accepted target identifiers for aided wording: ${aidedAliasInstruction}
 Market: ${project.market}
@@ -270,6 +271,7 @@ ${JSON.stringify(intent)}`,
       const expressions = uniqueExpressions(parsed.expressions)
         .filter((item) => languages.includes(item.language))
         .filter((item) => item.mode !== 'unaided' || !containsCompanyAlias(item.prompt_text, aliases))
+        .filter((item) => item.mode !== 'unaided' || isUnaidedRetrievalEligible(item.prompt_text))
         .filter((item) => item.mode !== 'aided' || containsCompanyAlias(item.prompt_text, aliases))
 
       for (const language of languages) {
@@ -282,6 +284,7 @@ ${JSON.stringify(intent)}`,
                 language,
                 generated_total: parsed.expressions.filter((item) => item.language === language).length,
                 valid_unaided: unaided.length,
+                invalid_unaided_retrieval_questions: parsed.expressions.filter((item) => item.language === language && item.mode === 'unaided' && !isUnaidedRetrievalEligible(item.prompt_text)).map((item) => item.prompt_text),
                 valid_aided: aided.length,
                 accepted_target_identifiers: aliases.map((item) => item.raw),
               },
