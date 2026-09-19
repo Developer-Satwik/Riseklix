@@ -86,9 +86,11 @@ export async function generateBlueprint(formData: FormData) {
     redirect(`/projects/${parsed.data.project_id}/fixes?error=${encodeURIComponent(message)}`)
   }
 
-  const message = data?.reused
-    ? 'Existing Blueprint reused.'
-    : `Blueprint v${Number(data?.blueprint?.version ?? 1)} generated for review.`
+  const message = data?.pending
+    ? String(data.message || 'Blueprint generation started in the background.')
+    : data?.reused
+      ? 'Existing Blueprint reused.'
+      : `Blueprint v${Number(data?.blueprint?.version ?? 1)} generated for review.`
   redirect(`/projects/${parsed.data.project_id}/fixes?message=${encodeURIComponent(message)}`)
 }
 
