@@ -10,6 +10,10 @@ const schema = z.object({
 })
 
 const ranks: Record<string, number> = {
+  urgent: 0,
+  opportunity: 1,
+  monitor: 2,
+  healthy: 3,
   critical: 0,
   high: 1,
   medium: 2,
@@ -77,6 +81,7 @@ export async function generatePriorityFixes(formData: FormData) {
     redirect('/projects/' + parsed.data.project_id + '/fixes?message=' + encodeURIComponent('No new action-justified fixes in that priority range.'))
   }
 
+  let started = 0
   let generated = 0
   const failures: string[] = []
 
@@ -97,12 +102,20 @@ export async function generatePriorityFixes(formData: FormData) {
       continue
     }
 
-    generated++
+    if (data?.pending) started++
+    else generated++
   }
 
+  const completedText = generated
+    ? generated + ' Blueprint' + (generated === 1 ? '' : 's') + ' ready'
+    : ''
+  const startedText = started
+    ? started + ' Blueprint' + (started === 1 ? '' : 's') + ' building in the background'
+    : ''
+  const successText = [completedText, startedText].filter(Boolean).join('; ')
   const message = failures.length
-    ? generated + ' fix Blueprint' + (generated === 1 ? '' : 's') + ' generated; ' + failures.length + ' need attention.'
-    : generated + ' prioritized fix Blueprint' + (generated === 1 ? '' : 's') + ' generated for review.'
+    ? (successText ? successText + '; ' : '') + failures.length + ' need attention.'
+    : successText || 'Blueprint generation started.'
 
   redirect('/projects/' + parsed.data.project_id + '/fixes?message=' + encodeURIComponent(message))
 }
