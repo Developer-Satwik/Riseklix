@@ -105,7 +105,7 @@ async function ensureBaseline(projectId: string) {
       repetitions_per_expression: repetitions,
       session_policy: 'fresh_session_each_run',
       geography: project.market,
-      surface_policy: 'minimum_two_usable_providers; failed providers excluded from aggregate interpretation',
+      surface_policy: 'minimum_three_usable_providers; failed providers excluded from aggregate interpretation',
       notes: 'Baseline created automatically when the user runs approved buyer questions.',
     },
   }).select('id').single()
