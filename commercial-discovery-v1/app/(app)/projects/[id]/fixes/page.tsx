@@ -75,7 +75,7 @@ export default async function FixesPage({ params, searchParams }: { params: Prom
   }
 
   const routes = [
-    ['diy', 'Do it myself', 'Use the full implementation brief, evidence checklist and acceptance criteria yourself.'],
+    ['diy', 'Do it myself', 'Keep the work in your hands. Next, choose whether you are implementing with AI or manually.'],
     ['internal_team', 'Send to my team', 'Turn this Blueprint into a scoped work order for your developer, writer or internal owner.'],
     ['expert', 'Hire a vetted specialist', 'Route the exact scope to a Riseklix-vetted specialist without restarting discovery.'],
     ['managed', 'Let Riseklix handle it', 'Use the same Blueprint as the scope for managed implementation by Riseklix.'],
@@ -132,6 +132,9 @@ export default async function FixesPage({ params, searchParams }: { params: Prom
           const finding = (findings ?? []).find((item) => item.id === blueprint.finding_id)
           const intent = finding?.buyer_intent_id ? intentById.get(finding.buyer_intent_id) : null
           const task = taskByBlueprint.get(blueprint.id)
+          const executionMeta = record(task?.external_assignee)
+          const diyMethod = typeof executionMeta.execution_method === 'string' ? executionMeta.execution_method : null
+          const diyTool = typeof executionMeta.ai_tool === 'string' ? executionMeta.ai_tool : null
           const content = record(blueprint.generated_content)
           const structure = record(blueprint.structured_data)
           const refs = Array.isArray(blueprint.source_refs) ? blueprint.source_refs.filter((ref): ref is string => typeof ref === 'string') : []
@@ -156,18 +159,91 @@ export default async function FixesPage({ params, searchParams }: { params: Prom
               {typeof content.implementation_brief === 'string' && <div className="implementation-brief"><small>Implementation brief</small><p>{content.implementation_brief}</p></div>}
               {typeof content.opening_answer === 'string' && <div className="opening-answer"><small>Answer-first draft</small><p>{content.opening_answer}</p></div>}
 
-              <details className="blueprint-details">
-                <summary>Open complete implementation specification</summary>
+              <details className="blueprint-details" id={`blueprint-${blueprint.id}-spec`}>
+                <summary>Open implementation plan</summary>
                 <div className="blueprint-spec-grid">
-                  <section><small>Required sections</small>{array(blueprint.required_sections).map((item, index) => { const section = record(item); return <div className="spec-item" key={index}><strong>{String(section.heading ?? `Section ${index + 1}`)}</strong><p>{String(section.purpose ?? '')}</p><pre>{JSON.stringify(section.requirements ?? [], null, 2)}</pre></div> })}</section>
-                  <section><small>Evidence required</small>{array(blueprint.evidence_required).map((item, index) => { const evidence = record(item); return <div className="spec-item" key={index}><strong>{String(evidence.item ?? `Evidence ${index + 1}`)}</strong><p>{String(evidence.why ?? '')}</p></div> })}</section>
-                  <section><small>Claims to verify before publishing</small><pre>{JSON.stringify(blueprint.claims_to_verify ?? [], null, 2)}</pre></section>
-                  <section><small>Internal links</small><pre>{JSON.stringify(blueprint.internal_links ?? [], null, 2)}</pre></section>
-                  <section><small>Structured data</small><strong>{Array.isArray(structure.recommended_types) && structure.recommended_types.length ? structure.recommended_types.join(', ') : 'No markup automatically justified'}</strong><p>{String(structure.reason ?? '')}</p><pre>{JSON.stringify(structure.prerequisites ?? [], null, 2)}</pre></section>
-                  <section><small>Acceptance criteria</small><pre>{JSON.stringify(blueprint.acceptance_criteria ?? [], null, 2)}</pre></section>
-                  <section><small>Content notes</small><pre>{JSON.stringify(content.content_notes ?? [], null, 2)}</pre></section>
-                  <section><small>Technical notes</small><pre>{JSON.stringify(content.technical_notes ?? [], null, 2)}</pre></section>
-                  <section><small>Measurement plan</small><pre>{JSON.stringify(content.measurement_plan ?? [], null, 2)}</pre></section>
+                  <section className="spec-span-2">
+                    <small>Page / asset requirements</small>
+                    <div className="spec-section-stack">
+                      {array(blueprint.required_sections).map((item, index) => {
+                        const section = record(item)
+                        return (
+                          <article className="spec-item" key={index}>
+                            <div className="spec-number">{String(index + 1).padStart(2, '0')}</div>
+                            <div>
+                              <strong>{String(section.heading ?? `Section ${index + 1}`)}</strong>
+                              <p>{String(section.purpose ?? '')}</p>
+                              <Checklist items={strings(section.requirements)} />
+                            </div>
+                          </article>
+                        )
+                      })}
+                    </div>
+                  </section>
+
+                  <section>
+                    <small>Evidence needed before publishing</small>
+                    <div className="evidence-needed-list">
+                      {array(blueprint.evidence_required).map((item, index) => {
+                        const evidence = record(item)
+                        return (
+                          <article key={index}>
+                            <strong>{String(evidence.item ?? `Evidence ${index + 1}`)}</strong>
+                            <p>{String(evidence.why ?? '')}</p>
+                          </article>
+                        )
+                      })}
+                    </div>
+                  </section>
+
+                  <section>
+                    <small>Claims to verify</small>
+                    <Checklist items={strings(blueprint.claims_to_verify)} />
+                  </section>
+
+                  <section className="spec-span-2">
+                    <small>Internal links to add</small>
+                    <div className="internal-link-list">
+                      {array(blueprint.internal_links).map((item, index) => {
+                        const link = record(item)
+                        return (
+                          <article key={index}>
+                            <div><span>From</span><strong>{shortUrl(link.from_url)}</strong></div>
+                            <div><span>To</span><strong>{shortUrl(link.to_url)}</strong></div>
+                            <p>{String(link.anchor_intent ?? '')}</p>
+                          </article>
+                        )
+                      })}
+                      {!array(blueprint.internal_links).length && <p className="spec-empty">No internal-link change is required for this Blueprint.</p>}
+                    </div>
+                  </section>
+
+                  <section>
+                    <small>Structured data</small>
+                    <strong className="spec-lead">{Array.isArray(structure.recommended_types) && structure.recommended_types.length ? structure.recommended_types.join(', ') : 'No markup automatically justified'}</strong>
+                    <p>{String(structure.reason ?? '')}</p>
+                    <Checklist items={strings(structure.prerequisites)} />
+                  </section>
+
+                  <section>
+                    <small>Definition of done</small>
+                    <Checklist items={strings(blueprint.acceptance_criteria)} />
+                  </section>
+
+                  <section>
+                    <small>Content guidance</small>
+                    <Checklist items={strings(content.content_notes)} />
+                  </section>
+
+                  <section>
+                    <small>Developer notes</small>
+                    <Checklist items={strings(content.technical_notes)} />
+                  </section>
+
+                  <section className="spec-span-2">
+                    <small>After implementation</small>
+                    <Checklist items={strings(content.measurement_plan)} ordered />
+                  </section>
                 </div>
               </details>
 
@@ -195,6 +271,83 @@ export default async function FixesPage({ params, searchParams }: { params: Prom
                       </form>
                     ))}
                   </div>
+
+                  {task?.route === 'diy' && (
+                    <div className="diy-execution-flow">
+                      <div className="execution-step-head">
+                        <span>02</span>
+                        <div>
+                          <div className="eyebrow">HOW WILL YOU EXECUTE IT?</div>
+                          <h3>Choose your DIY method.</h3>
+                          <p>We only ask about a specific AI workspace after you choose to implement with AI.</p>
+                        </div>
+                      </div>
+
+                      <div className="execution-method-grid">
+                        <form action={chooseDiyMethod} className={diyMethod === 'ai' ? 'route-selected' : ''}>
+                          <input type="hidden" name="project_id" value={id} />
+                          <input type="hidden" name="blueprint_id" value={blueprint.id} />
+                          <input type="hidden" name="method" value="ai" />
+                          <strong>Use AI to implement</strong>
+                          <p>Riseklix will adapt this Blueprint into a tightly scoped implementation pack for your AI workspace.</p>
+                          <PendingButton pendingLabel="Selecting…">{diyMethod === 'ai' ? 'Selected' : 'Choose AI'}</PendingButton>
+                        </form>
+
+                        <form action={chooseDiyMethod} className={diyMethod === 'manual' ? 'route-selected' : ''}>
+                          <input type="hidden" name="project_id" value={id} />
+                          <input type="hidden" name="blueprint_id" value={blueprint.id} />
+                          <input type="hidden" name="method" value="manual" />
+                          <strong>Implement manually</strong>
+                          <p>Use the human-readable Blueprint as a developer-ready work order without an AI coding workspace.</p>
+                          <PendingButton pendingLabel="Selecting…">{diyMethod === 'manual' ? 'Selected' : 'Use developer brief'}</PendingButton>
+                        </form>
+                      </div>
+
+                      {diyMethod === 'ai' && (
+                        <div className="ai-workspace-step">
+                          <div className="execution-step-head compact-step">
+                            <span>03</span>
+                            <div>
+                              <div className="eyebrow">AI WORKSPACE</div>
+                              <h3>Where will you run the implementation?</h3>
+                              <p>This choice will control the prompt format and project-context instructions.</p>
+                            </div>
+                          </div>
+                          <div className="ai-workspace-grid">
+                            {[
+                              ['lovable', 'Lovable', 'Component-scoped prompt with strong preserve-the-existing-design constraints.'],
+                              ['claude_code', 'Claude Code', 'Repository-aware work order designed to sit alongside project instructions.'],
+                              ['codex', 'Codex', 'Repository-scoped task designed to respect AGENTS.md instructions and existing checks.'],
+                              ['other_ai', 'Other AI workspace', 'Tool-neutral implementation pack for Cursor, Replit, Bolt or another coding assistant.'],
+                            ].map(([tool, title, description]) => (
+                              <form action={chooseDiyTool} className={diyTool === tool ? 'route-selected' : ''} key={tool}>
+                                <input type="hidden" name="project_id" value={id} />
+                                <input type="hidden" name="blueprint_id" value={blueprint.id} />
+                                <input type="hidden" name="tool" value={tool} />
+                                <strong>{title}</strong>
+                                <p>{description}</p>
+                                <PendingButton pendingLabel="Selecting…">{diyTool === tool ? 'Selected' : `Use ${title}`}</PendingButton>
+                              </form>
+                            ))}
+                          </div>
+                          {diyTool && (
+                            <div className="execution-ready-note">
+                              <strong>Execution context selected.</strong>
+                              <p>The next DIY layer can generate the implementation pack from this approved Blueprint without re-running discovery.</p>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {diyMethod === 'manual' && (
+                        <div className="execution-ready-note">
+                          <strong>Developer brief ready.</strong>
+                          <p>The implementation plan above is the work order: scope, evidence requirements, claims to verify, links, technical notes and definition of done are already separated for handoff.</p>
+                          <a href={`#blueprint-${blueprint.id}-spec`}>Review implementation plan</a>
+                        </div>
+                      )}
+                    </div>
+                  )}
 
                   {task && (
                     <form action={updateImplementationTask} className="delivery-workflow">
