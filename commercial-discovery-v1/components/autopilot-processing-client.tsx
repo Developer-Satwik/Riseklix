@@ -3,37 +3,39 @@
 import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { resumeAutopilot } from '@/app/(app)/projects/[id]/overview/autopilot-actions'
+import {
+  enableAnalysisNotifications,
+  shouldOfferAnalysisNotifications,
+  snoozeAnalysisNotificationPrompt,
+} from '@/lib/analysis-notifications'
 
-type NotificationState = 'unsupported' | 'default' | 'granted' | 'denied'
+type NotificationPromptState = 'hidden' | 'offer' | 'success'
 
 export function AutopilotProcessingClient({
   projectId,
-  projectName,
   complete,
   paused,
   activeJobCount,
 }: {
   projectId: string
-  projectName: string
   complete: boolean
   paused: boolean
   activeJobCount: number
 }) {
   const router = useRouter()
   const lastResumeAt = useRef(0)
-  const notified = useRef(false)
-  const [notificationState, setNotificationState] = useState<NotificationState>('default')
+  const successTimer = useRef<number | null>(null)
+  const [notificationPrompt, setNotificationPrompt] = useState<NotificationPromptState>('hidden')
 
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => {
-      if (!('Notification' in window)) {
-        setNotificationState('unsupported')
-        return
-      }
-      setNotificationState(Notification.permission as NotificationState)
+      if (shouldOfferAnalysisNotifications()) setNotificationPrompt('offer')
     })
 
-    return () => window.cancelAnimationFrame(frame)
+    return () => {
+      window.cancelAnimationFrame(frame)
+      if (successTimer.current) window.clearTimeout(successTimer.current)
+    }
   }, [])
 
   useEffect(() => {
@@ -66,83 +68,39 @@ export function AutopilotProcessingClient({
     }
   }, [activeJobCount, complete, paused, projectId, router])
 
-  useEffect(() => {
-    if (!complete || notified.current) return
-    notified.current = true
-
-    async function finish() {
-      const shouldNotify = window.localStorage.getItem('riseklix.analysis.notifications') === 'true'
-
-      if (shouldNotify && 'Notification' in window && Notification.permission === 'granted') {
-        try {
-          const registration = 'serviceWorker' in navigator
-            ? await navigator.serviceWorker.register('/analysis-notifications-sw.js')
-            : null
-
-          if (registration) {
-            await registration.showNotification('Your Riseklix analysis is ready', {
-              body: projectName + ' has finished Commercial Discovery. Open the report to review findings and prioritized fixes.',
-              tag: 'riseklix-analysis-' + projectId,
-              data: { url: '/projects/' + projectId + '/report' },
-            })
-          } else {
-            new Notification('Your Riseklix analysis is ready', {
-              body: projectName + ' has finished Commercial Discovery.',
-            })
-          }
-        } catch {
-          // Notification delivery is best-effort; report navigation should never depend on it.
-        }
-      }
-
-      window.setTimeout(() => router.replace('/projects/' + projectId + '/report'), 650)
-    }
-
-    void finish()
-  }, [complete, projectId, projectName, router])
-
   async function enableNotifications() {
-    if (!('Notification' in window)) {
-      setNotificationState('unsupported')
+    const next = await enableAnalysisNotifications({ sendTest: true })
+
+    if (next === 'on') {
+      setNotificationPrompt('success')
+      successTimer.current = window.setTimeout(() => setNotificationPrompt('hidden'), 2800)
       return
     }
 
-    const permission = await Notification.requestPermission()
-    setNotificationState(permission as NotificationState)
-
-    if (permission === 'granted') {
-      window.localStorage.setItem('riseklix.analysis.notifications', 'true')
-      window.localStorage.setItem('riseklix.analysis.notifications.enabled_at', new Date().toISOString())
-      if ('serviceWorker' in navigator) {
-        try {
-          await navigator.serviceWorker.register('/analysis-notifications-sw.js')
-        } catch {
-          // The processing page still works without a service worker.
-        }
-      }
-    }
+    setNotificationPrompt('hidden')
   }
 
-  function disableNotifications() {
-    window.localStorage.setItem('riseklix.analysis.notifications', 'false')
-    setNotificationState('default')
+  function notNow() {
+    snoozeAnalysisNotificationPrompt()
+    setNotificationPrompt('hidden')
   }
+
+  if (notificationPrompt === 'hidden') return null
 
   return (
-    <div className="autopilot-notify">
-      {notificationState === 'granted' ? (
-        <>
-          <span><i aria-hidden="true">✓</i> Browser notification enabled</span>
-          <button type="button" onClick={disableNotifications}>Turn off</button>
-        </>
-      ) : notificationState === 'denied' ? (
-        <span>Notifications are blocked in this browser. The report will still open automatically here when ready.</span>
-      ) : notificationState === 'unsupported' ? (
-        <span>This browser does not support system notifications. You can leave this tab open and Riseklix will move to the report when finished.</span>
+    <div className={'autopilot-notify ' + (notificationPrompt === 'success' ? 'success' : '')} role="status" aria-live="polite">
+      {notificationPrompt === 'success' ? (
+        <span><i aria-hidden="true">✓</i> Notifications are on. You can change this anytime in Settings.</span>
       ) : (
         <>
-          <span>Want to work on something else?</span>
-          <button type="button" onClick={enableNotifications}>Notify me when ready</button>
+          <div>
+            <strong>Get notified when this analysis is ready</strong>
+            <span>Allow once in your browser. Notification preferences stay in Settings.</span>
+          </div>
+          <div className="autopilot-notify-actions">
+            <button type="button" onClick={enableNotifications}>Allow notifications</button>
+            <button type="button" className="quiet" onClick={notNow}>Not now</button>
+          </div>
         </>
       )}
     </div>

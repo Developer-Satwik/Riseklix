@@ -85,7 +85,6 @@ export default async function ProcessingPage({
     <div className="project-page autopilot-processing-page">
       <AutopilotProcessingClient
         projectId={id}
-        projectName={profile?.company_name || project.name}
         complete={false}
         paused={paused}
         activeJobCount={activeJobs.length}
@@ -170,7 +169,7 @@ export default async function ProcessingPage({
         <div>
           <div className="eyebrow">YOU CAN LEAVE THIS SCREEN</div>
           <h2>The research keeps running in the background.</h2>
-          <p>Keep Riseklix open in this browser if you want a system notification the moment the report is ready. You can also return to Projects and check the analysis later.</p>
+          <p>The analysis keeps running if you leave this screen. Browser alerts are optional and managed from Settings; when enabled, Riseklix can notify you while the app is open in this browser.</p>
         </div>
         <Link href="/projects">Back to projects</Link>
       </section>

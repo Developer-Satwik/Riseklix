@@ -34,6 +34,10 @@ const edgePromptEligibility = read('supabase/functions/_shared/prompt-eligibilit
 const buyerSituationsPage = read('app/(app)/projects/[id]/buyer-situations/page.tsx')
 const whyPage = read('app/(app)/projects/[id]/why/page.tsx')
 const methodPage = read('app/(app)/projects/[id]/method/page.tsx')
+const notificationFlow = read('lib/analysis-notifications.ts')
+const notificationSetting = read('components/analysis-notification-setting.tsx')
+const processingClient = read('components/autopilot-processing-client.tsx')
+const completionNotifier = read('components/analysis-completion-notifier.tsx')
 const autopilotIntentSelection = read('supabase/functions/_shared/autopilot-intent-selection.ts')
 
 requireText(
@@ -301,6 +305,53 @@ const seededPortfolio = selectAutopilotIntentPortfolio([
 if (seededPortfolio[0]?.id !== 'technical-novel') {
   throw new Error('Methodology invariant failed: existing approved intents must influence remaining portfolio novelty.')
 }
+
+
+requireText(
+  processingClient,
+  'shouldOfferAnalysisNotifications()',
+  'Autopilot processing must use the contextual soft notification prompt instead of requesting permission on page load.',
+)
+requireText(
+  processingClient,
+  'onClick={enableNotifications}',
+  'The native notification permission request must remain behind an explicit user action.',
+)
+requireText(
+  processingClient,
+  'Not now',
+  'The contextual notification prompt must offer a non-blocking dismissal path.',
+)
+forbidText(
+  processingClient,
+  'Turn off',
+  'Processing must not expose a second disable-notifications control after opt-in; Settings owns ongoing notification management.',
+)
+requireText(
+  notificationSetting,
+  'disableAnalysisNotifications()',
+  'Settings must retain the explicit notification opt-out control.',
+)
+requireText(
+  notificationFlow,
+  "Notification.requestPermission()",
+  'Notification permission must be requested through the centralized permission flow.',
+)
+requireText(
+  notificationFlow,
+  'PROMPT_SNOOZE_MS = 30 * 24 * 60 * 60 * 1000',
+  'Choosing Not now must suppress repeated notification prompts for a meaningful cooldown.',
+)
+requireText(
+  completionNotifier,
+  'if (!delivered) continue',
+  'Failed browser notification delivery must remain retryable instead of being marked seen.',
+)
+requireText(
+  completionNotifier,
+  'seen.add(run.project_id)',
+  'Successful completion notifications must still be deduplicated.',
+)
 
 const trustedWorkerFunctions = [
   'auto-analysis-runner',
