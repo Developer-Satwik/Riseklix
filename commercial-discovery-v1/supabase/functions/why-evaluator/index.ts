@@ -251,14 +251,47 @@ const handler = {
 
     if (projectError || benchmarkError || profileError || !project || !benchmark || !profile) return json({ error: 'Project, benchmark or Company Intelligence not found' }, 404)
 
-    const { data: runs, error: runError } = await ctx.supabase
-      .from('observation_runs')
-      .select('id,buyer_intent_id,prompt_expression_id,provider,surface,model_label,repetition,language,run_status,retrieval_status,target_rank,raw_answer,extracted_brands,citations,metadata,captured_at,error_message')
-      .eq('benchmark_id', benchmark.id)
+    const [{ data: runs, error: runError }, { data: surfaceRows, error: surfaceError }] = await Promise.all([
+      ctx.supabase
+        .from('observation_runs')
+        .select('id,buyer_intent_id,prompt_expression_id,provider,surface,model_label,repetition,language,run_status,retrieval_status,target_rank,raw_answer,extracted_brands,citations,metadata,captured_at,error_message')
+        .eq('benchmark_id', benchmark.id),
+      ctx.supabase
+        .from('benchmark_surfaces')
+        .select('provider,expected_runs,captured_runs,status,enabled')
+        .eq('benchmark_id', benchmark.id)
+        .eq('enabled', true),
+    ])
     if (runError) return json({ error: runError.message }, 400)
+    if (surfaceError) return json({ error: surfaceError.message }, 400)
 
-    const capturedRuns = (runs ?? []).filter((run) => run.run_status === 'captured')
-    if (!capturedRuns.length) return json({ error: 'captured_observations_required', message: 'WHY evaluation requires captured benchmark observations.' }, 409)
+    const benchmarkConfig = record(benchmark.collection_config)
+    const frozenUsableProviders = stringArray(benchmarkConfig.usable_providers)
+    const rawCapturedRuns = (runs ?? []).filter((run) => run.run_status === 'captured')
+    const usableProviderSet = frozenUsableProviders.length
+      ? new Set(frozenUsableProviders)
+      : new Set(
+          benchmark.status === 'complete' || benchmark.status === 'failed'
+            ? (surfaceRows ?? [])
+                .filter((surface) => {
+                  const expectedRuns = Number(surface.expected_runs || 0)
+                  const capturedRuns = Number(surface.captured_runs || 0)
+                  return capturedRuns >= Math.max(1, Math.ceil(expectedRuns * 0.5))
+                })
+                .map((surface) => surface.provider)
+            : rawCapturedRuns.map((run) => run.provider),
+        )
+    const excludedProviders = Array.from(new Set((surfaceRows ?? []).map((surface) => surface.provider)))
+      .filter((provider) => !usableProviderSet.has(provider))
+    const capturedRuns = rawCapturedRuns.filter((run) => usableProviderSet.has(run.provider))
+
+    if (!capturedRuns.length) {
+      return json({
+        error: 'usable_captured_observations_required',
+        message: 'WHY evaluation requires captured observations from providers admitted by the benchmark coverage policy.',
+        excluded_providers: excludedProviders,
+      }, 409)
+    }
 
     const intentIds = Array.from(new Set(capturedRuns.map((run) => run.buyer_intent_id)))
     const { data: intents } = await ctx.supabase
@@ -309,7 +342,13 @@ const handler = {
       progress: 0,
       stage: 'preparing_why_evidence',
       idempotency_key: `why:${benchmark.id}:${model}:${crypto.randomUUID()}`,
-      input: { benchmark_id: benchmark.id, model, intent_ids: eligibleIntents.map((intent) => intent.id) },
+      input: {
+        benchmark_id: benchmark.id,
+        model,
+        intent_ids: eligibleIntents.map((intent) => intent.id),
+        usable_providers: Array.from(usableProviderSet),
+        excluded_providers: excludedProviders,
+      },
       started_at: new Date().toISOString(),
     }).select('id').single()
     if (jobError || !job) return json({ error: jobError?.message ?? 'Could not start WHY evaluation' }, 400)
@@ -437,6 +476,8 @@ ${JSON.stringify(packets)}`,
             buyer_intent_ids: packets.map((packet) => packet.intent.id),
             batched_intent_count: packets.length,
             evidence_mode: 'deterministic_summary_plus_representative_excerpts',
+            usable_providers: Array.from(usableProviderSet),
+            excluded_providers: excludedProviders,
           },
         })
 
