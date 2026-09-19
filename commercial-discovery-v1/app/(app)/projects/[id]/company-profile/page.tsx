@@ -27,6 +27,7 @@ export default async function CompanyProfilePage({ params, searchParams }: { par
   ])
 
   const job = researchJobs?.[0] ?? null
+  const researchBusy = (researchJobs ?? []).some((item) => item.status === 'running' || item.status === 'queued')
   const latestCrawlerJob = (researchJobs ?? []).find((item) => {
     const input = item.input && typeof item.input === 'object' && !Array.isArray(item.input) ? item.input as Record<string, unknown> : {}
     return typeof input.domain === 'string'
@@ -48,7 +49,7 @@ export default async function CompanyProfilePage({ params, searchParams }: { par
 
   return (
     <div className="project-page profile-page">
-      <ResearchJobWatcher active={job?.status === 'running'} />
+      <ResearchJobWatcher active={researchBusy} />
       <section className="page-header compact">
         <div>
           <div className="eyebrow">COMPANY INTELLIGENCE</div>
@@ -83,7 +84,9 @@ export default async function CompanyProfilePage({ params, searchParams }: { par
         <form action={runCompanyResearch}>
           <input type="hidden" name="project_id" value={id} />
           <input type="hidden" name="regenerate" value={job?.status === 'succeeded' ? 'true' : 'false'} />
-          <PendingButton pendingLabel="Researching company…">{job?.status === 'succeeded' ? 'Refresh evidence' : 'Run company research'}</PendingButton>
+          <PendingButton pendingLabel="Researching company…" disabled={researchBusy}>
+            {researchBusy ? 'Research in progress…' : job?.status === 'succeeded' ? 'Refresh evidence' : 'Run company research'}
+          </PendingButton>
         </form>
       </section>
 
