@@ -174,6 +174,11 @@ requireText(
   'configured_provider_count: configured.length',
   'Provider preflight must expose configuration readiness without requiring a benchmark.',
 )
+requireText(
+  providerPreflight,
+  "withSupabase({ auth: ['user','secret'] }",
+  'Provider preflight must require an authenticated user or trusted worker context.',
+)
 forbidText(
   providerPreflight,
   'missingSecrets',
@@ -396,7 +401,6 @@ const trustedWorkerFunctions = [
   'competitor-discovery',
   'prompt-expression-generator',
   'all-observation-runner',
-  'observation-provider-preflight',
   'openai-observation-runner',
   'provider-observation-runner',
   'why-evaluator',
