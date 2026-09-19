@@ -112,8 +112,10 @@ function configuredSurfaces(project: { id: string; workspace_id: string }, bench
 }
 
 const handler = {
-  fetch: withSupabase({ auth: 'user' }, async (req, ctx) => {
+  fetch: withSupabase({ auth: ['user','secret'] }, async (req, ctx) => {
     if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405)
+
+    const db = ctx.authMode === 'user' ? db : ctx.supabaseAdmin
 
     let body: RequestBody
     try { body = await req.json() } catch { return json({ error: 'Invalid JSON body' }, 400) }
@@ -122,11 +124,14 @@ const handler = {
     if (!projectId) return json({ error: 'project_id is required' }, 400)
 
     const authHeader = req.headers.get('Authorization')
+    const apiKeyHeader = req.headers.get('apikey')
     const supabaseUrl = Deno.env.get('SUPABASE_URL')
     const anonKey = Deno.env.get('SUPABASE_ANON_KEY')
-    if (!authHeader || !supabaseUrl) return json({ error: 'Authenticated function context unavailable' }, 500)
+    if (!supabaseUrl || (!authHeader && !apiKeyHeader)) {
+      return json({ error: 'Authenticated or internal function context unavailable' }, 500)
+    }
 
-    const { data: project, error: projectError } = await ctx.supabase
+    const { data: project, error: projectError } = await db
       .from('projects')
       .select('id,workspace_id,name,market,analysis_mode,primary_language,status')
       .eq('id', projectId)
@@ -135,14 +140,14 @@ const handler = {
     if (projectError || !project) return json({ error: 'Project not found' }, 404)
     if (project.analysis_mode !== 'autopilot') return json({ skipped: true, stage: 'manual_mode' })
 
-    let { data: run } = await ctx.supabase
+    let { data: run } = await db
       .from('autopilot_runs')
       .select('*')
       .eq('project_id', project.id)
       .maybeSingle()
 
     if (!run) {
-      const created = await ctx.supabase.from('autopilot_runs').insert({
+      const created = await db.from('autopilot_runs').insert({
         workspace_id: project.workspace_id,
         project_id: project.id,
         status: 'running',
@@ -158,7 +163,7 @@ const handler = {
       }).select('*').single()
 
       if (created.error || !created.data) {
-        const retry = await ctx.supabase.from('autopilot_runs').select('*').eq('project_id', project.id).single()
+        const retry = await db.from('autopilot_runs').select('*').eq('project_id', project.id).single()
         if (retry.error || !retry.data) return json({ error: created.error?.message ?? 'Could not initialize AI Autopilot state' }, 400)
         run = retry.data
       } else {
@@ -181,7 +186,7 @@ const handler = {
     }
 
     if (run.step_count >= run.max_steps) {
-      await ctx.supabase.from('autopilot_runs').update({
+      await db.from('autopilot_runs').update({
         status: 'paused',
         stage: 'guardrail_step_limit',
         last_error: 'AI Autopilot stopped after reaching its maximum workflow-step limit. No further model calls will run until the analysis is explicitly resumed.',
@@ -191,7 +196,7 @@ const handler = {
     }
 
     if (run.api_call_count >= run.max_api_calls) {
-      await ctx.supabase.from('autopilot_runs').update({
+      await db.from('autopilot_runs').update({
         status: 'paused',
         stage: 'guardrail_api_limit',
         last_error: 'AI Autopilot stopped after reaching its per-analysis API-call limit. No further model calls will run automatically.',
@@ -202,7 +207,7 @@ const handler = {
 
     const now = new Date()
     const leaseUntil = new Date(now.getTime() + LEASE_SECONDS * 1000).toISOString()
-    const claimed = await ctx.supabase
+    const claimed = await db
       .from('autopilot_runs')
       .update({
         lease_until: leaseUntil,
@@ -225,7 +230,7 @@ const handler = {
     run = claimed.data
 
     const updateRun = async (values: Record<string, unknown>) => {
-      const { data } = await ctx.supabase
+      const { data } = await db
         .from('autopilot_runs')
         .update({ last_heartbeat_at: new Date().toISOString(), ...values })
         .eq('id', run.id)
@@ -261,11 +266,10 @@ const handler = {
     const invoke = async (name: string, payload: Record<string, unknown>) => {
       await consumeCall()
 
-      const headers: Record<string, string> = {
-        'Content-Type': 'application/json',
-        Authorization: authHeader,
-      }
-      if (anonKey) headers.apikey = anonKey
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+      if (authHeader) headers.Authorization = authHeader
+      if (apiKeyHeader) headers.apikey = apiKeyHeader
+      else if (anonKey) headers.apikey = anonKey
 
       const response = await fetch(supabaseUrl + '/functions/v1/' + name, {
         method: 'POST',
@@ -287,7 +291,7 @@ const handler = {
     }
 
     const stageJobs = async (jobType: string, intentId?: string) => {
-      const { data } = await ctx.supabase
+      const { data } = await db
         .from('research_jobs')
         .select('id,status,stage,error,input,created_at')
         .eq('project_id', project.id)
@@ -316,7 +320,7 @@ const handler = {
     }
 
     const userId = String(ctx.userClaims?.id ?? ctx.jwtClaims?.sub ?? '') || null
-    const { data: profile } = await ctx.supabase
+    const { data: profile } = await db
       .from('company_profile_versions')
       .select('id,status')
       .eq('project_id', project.id)
@@ -329,7 +333,7 @@ const handler = {
       })
     }
 
-    let { data: intents } = await ctx.supabase
+    let { data: intents } = await db
       .from('buyer_intents')
       .select('id,status,intent_key,priority,created_at')
       .eq('project_id', project.id)
@@ -362,7 +366,7 @@ const handler = {
       const approvedAt = new Date().toISOString()
 
       if (selected.length) {
-        await ctx.supabase.from('buyer_intents').update({
+        await db.from('buyer_intents').update({
           status: 'approved',
           approved_by: userId,
           approved_at: approvedAt,
@@ -370,14 +374,14 @@ const handler = {
       }
 
       if (notSelected.length) {
-        await ctx.supabase.from('buyer_intents').update({
+        await db.from('buyer_intents').update({
           status: 'rejected',
           approved_by: null,
           approved_at: null,
         }).in('id', notSelected.map((intent) => intent.id))
       }
 
-      await ctx.supabase.from('audit_events').insert({
+      await db.from('audit_events').insert({
         workspace_id: project.workspace_id,
         project_id: project.id,
         actor_user_id: userId,
@@ -391,7 +395,7 @@ const handler = {
         },
       })
 
-      const refreshed = await ctx.supabase
+      const refreshed = await db
         .from('buyer_intents')
         .select('id,status,intent_key,priority,created_at')
         .eq('project_id', project.id)
@@ -406,13 +410,13 @@ const handler = {
 
     const intentIds = approvedIntents.map((intent) => intent.id)
     const [{ data: competitors }, { data: competitorJobs }] = await Promise.all([
-      ctx.supabase
+      db
         .from('competitor_candidates')
         .select('buyer_intent_id,status,is_current')
         .in('buyer_intent_id', intentIds)
         .eq('is_current', true)
         .eq('status', 'verified'),
-      ctx.supabase
+      db
         .from('research_jobs')
         .select('id,status,input,error,created_at')
         .eq('project_id', project.id)
@@ -497,7 +501,7 @@ const handler = {
       })
     }
 
-    const { data: promptRows } = await ctx.supabase
+    const { data: promptRows } = await db
       .from('prompt_expressions')
       .select('id,buyer_intent_id,language,mode,status,is_frozen')
       .in('buyer_intent_id', intentIds)
@@ -508,13 +512,13 @@ const handler = {
       const otherCandidates = candidatePrompts.filter((prompt) => prompt.language !== project.primary_language)
 
       if (primaryCandidates.length) {
-        await ctx.supabase.from('prompt_expressions').update({ status: 'approved' }).in('id', primaryCandidates.map((prompt) => prompt.id))
+        await db.from('prompt_expressions').update({ status: 'approved' }).in('id', primaryCandidates.map((prompt) => prompt.id))
       }
       if (otherCandidates.length) {
-        await ctx.supabase.from('prompt_expressions').update({ status: 'rejected' }).in('id', otherCandidates.map((prompt) => prompt.id))
+        await db.from('prompt_expressions').update({ status: 'rejected' }).in('id', otherCandidates.map((prompt) => prompt.id))
       }
 
-      await ctx.supabase.from('audit_events').insert({
+      await db.from('audit_events').insert({
         workspace_id: project.workspace_id,
         project_id: project.id,
         actor_user_id: userId,
@@ -529,7 +533,7 @@ const handler = {
       })
     }
 
-    const { data: approvedPrompts } = await ctx.supabase
+    const { data: approvedPrompts } = await db
       .from('prompt_expressions')
       .select('id,buyer_intent_id,language,mode,status,is_frozen')
       .in('buyer_intent_id', intentIds)
@@ -574,7 +578,7 @@ const handler = {
       }
     }
 
-    let { data: baseline } = await ctx.supabase
+    let { data: baseline } = await db
       .from('benchmarks')
       .select('id,status')
       .eq('project_id', project.id)
@@ -600,7 +604,7 @@ const handler = {
         return await pause('observation_budget_guardrail', 70, `Autopilot refused to create ${totalExpected} observation runs because the per-analysis safety cap is 120.`)
       }
 
-      const { data: created, error: benchmarkError } = await ctx.supabase.from('benchmarks').insert({
+      const { data: created, error: benchmarkError } = await db.from('benchmarks').insert({
         workspace_id: project.workspace_id,
         project_id: project.id,
         created_by: userId,
@@ -630,14 +634,14 @@ const handler = {
         buyer_intent_id: prompt.buyer_intent_id,
         prompt_expression_id: prompt.id,
       }))
-      const memberInsert = await ctx.supabase.from('benchmark_prompts').insert(members)
+      const memberInsert = await db.from('benchmark_prompts').insert(members)
       if (memberInsert.error) return await pause('baseline_membership_failed', 70, memberInsert.error.message)
 
       const surfaces = configuredSurfaces(project, created.id, expectedPerSurface)
-      const surfaceInsert = await ctx.supabase.from('benchmark_surfaces').insert(surfaces)
+      const surfaceInsert = await db.from('benchmark_surfaces').insert(surfaces)
       if (surfaceInsert.error) return await pause('surface_configuration_failed', 70, surfaceInsert.error.message)
 
-      await ctx.supabase.from('prompt_expressions').update({ is_frozen: true }).in('id', selected.map((prompt) => prompt.id))
+      await db.from('prompt_expressions').update({ is_frozen: true }).in('id', selected.map((prompt) => prompt.id))
       baseline = created
       await updateRun({
         stage: 'baseline_ready',
@@ -656,7 +660,7 @@ const handler = {
       const activeTests = await stageJobs('observation_collection')
       const runningTest = activeTests.find((job) => job.status === 'running' || job.status === 'queued')
       if (runningTest) {
-        const { data: surfaceState } = await ctx.supabase
+        const { data: surfaceState } = await db
           .from('benchmark_surfaces')
           .select('expected_runs,captured_runs,status,enabled')
           .eq('benchmark_id', baseline.id)
@@ -685,7 +689,7 @@ const handler = {
     }
 
     if (baseline.status === 'failed') {
-      const { data: failedSurfaces } = await ctx.supabase
+      const { data: failedSurfaces } = await db
         .from('benchmark_surfaces')
         .select('provider,status,expected_runs,captured_runs')
         .eq('benchmark_id', baseline.id)
@@ -709,8 +713,8 @@ const handler = {
     }
 
     const [{ data: currentFindings }, { data: observedIntentRows }] = await Promise.all([
-      ctx.supabase.from('findings').select('id,buyer_intent_id,review_status').eq('benchmark_id', baseline.id).eq('is_current', true),
-      ctx.supabase.from('observation_runs').select('buyer_intent_id').eq('benchmark_id', baseline.id).eq('run_status', 'captured'),
+      db.from('findings').select('id,buyer_intent_id,review_status').eq('benchmark_id', baseline.id).eq('is_current', true),
+      db.from('observation_runs').select('buyer_intent_id').eq('benchmark_id', baseline.id).eq('run_status', 'captured'),
     ])
 
     const observedIntentIds = new Set((observedIntentRows ?? []).map((row) => row.buyer_intent_id))
@@ -753,13 +757,13 @@ const handler = {
 
     const unreviewed = (currentFindings ?? []).filter((finding) => finding.review_status !== 'approved')
     if (unreviewed.length) {
-      await ctx.supabase.from('findings').update({
+      await db.from('findings').update({
         review_status: 'approved',
         reviewed_by: userId,
         reviewed_at: new Date().toISOString(),
       }).in('id', unreviewed.map((finding) => finding.id))
 
-      await ctx.supabase.from('audit_events').insert({
+      await db.from('audit_events').insert({
         workspace_id: project.workspace_id,
         project_id: project.id,
         actor_user_id: userId,
@@ -771,7 +775,7 @@ const handler = {
     }
 
     await Promise.all([
-      ctx.supabase.from('projects').update({ status: 'complete', updated_at: new Date().toISOString() }).eq('id', project.id),
+      db.from('projects').update({ status: 'complete', updated_at: new Date().toISOString() }).eq('id', project.id),
       updateRun({
         status: 'complete',
         stage: 'evaluation_complete',
