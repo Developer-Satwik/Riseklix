@@ -29,7 +29,6 @@ export function ProfileMenu({
   organization: string
 }) {
   const [open, setOpen] = useState(false)
-  const [currentUrl, setCurrentUrl] = useState('')
   const pathname = usePathname()
   const shellRef = useRef<HTMLDivElement>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
@@ -41,10 +40,6 @@ export function ProfileMenu({
     .slice(0, 2)
     .map((part) => part[0]?.toUpperCase())
     .join('') || 'R'
-
-  useEffect(() => {
-    setCurrentUrl(window.location.href)
-  }, [pathname])
 
   useEffect(() => {
     if (!open) return
@@ -108,7 +103,7 @@ export function ProfileMenu({
   const bugReportHref = 'mailto:contact@riseklix.com?subject='
     + encodeURIComponent('Riseklix bug report')
     + '&body='
-    + encodeURIComponent(`Page: ${currentUrl || pathname}\n\nWhat happened:\n\nWhat did you expect:\n`)
+    + encodeURIComponent(`Page: ${pathname}\n\nWhat happened:\n\nWhat did you expect:\n`)
 
   return (
     <div className="profile-menu-shell" ref={shellRef}>
