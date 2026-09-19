@@ -49,7 +49,7 @@ export function AnalysisDeleteControl({
         aria-label={variant === 'icon' ? 'Delete analysis' : undefined}
         title={variant === 'icon' ? 'Delete analysis' : undefined}
       >
-        {variant === 'icon' ? '•••' : 'Delete analysis'}
+        {variant === 'icon' ? '⋮' : 'Delete analysis'}
       </button>
 
       <dialog
