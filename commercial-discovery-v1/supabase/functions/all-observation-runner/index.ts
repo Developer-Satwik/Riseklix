@@ -1,0 +1,389 @@
+import { withSupabase } from 'npm:@supabase/server'
+import { MIN_USABLE_PROVIDERS, observationProviderReadiness } from '../_shared/observation-provider-readiness.ts'
+
+declare const EdgeRuntime: { waitUntil(promise: Promise<unknown>): void }
+
+type RequestBody = { project_id?: string; benchmark_id?: string }
+
+async function continueAutopilot(req: Request, projectId: string) {
+  const authHeader = req.headers.get('Authorization')
+  const apiKeyHeader = req.headers.get('apikey')
+  const supabaseUrl = Deno.env.get('SUPABASE_URL')
+  const anonKey = Deno.env.get('SUPABASE_ANON_KEY')
+  if (!supabaseUrl || (!authHeader && !apiKeyHeader)) return
+
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+  if (authHeader) headers.Authorization = authHeader
+  if (apiKeyHeader) headers.apikey = apiKeyHeader
+  else if (anonKey) headers.apikey = anonKey
+
+  try {
+    await fetch(supabaseUrl + '/functions/v1/auto-analysis-runner', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ project_id: projectId }),
+      signal: AbortSignal.timeout(120_000),
+    })
+  } catch {
+    // Durable benchmark state allows a later retry.
+  }
+}
+
+function json(data: unknown, status = 200) {
+  return Response.json(data, { status, headers: { 'Cache-Control': 'no-store' } })
+}
+
+function record(value: unknown) {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
+}
+
+const handler = {
+  fetch: withSupabase({ auth: ['user','secret'] }, async (req, ctx) => {
+    if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405)
+
+    const db = ctx.authMode === 'user' ? ctx.supabase : ctx.supabaseAdmin
+
+    let body: RequestBody
+    try { body = await req.json() } catch { return json({ error: 'Invalid JSON body' }, 400) }
+
+    const projectId = body.project_id?.trim()
+    const benchmarkId = body.benchmark_id?.trim()
+    if (!projectId || !benchmarkId) return json({ error: 'project_id and benchmark_id are required' }, 400)
+
+    const [{ data: project }, { data: benchmark }, { data: activeJob }] = await Promise.all([
+      db.from('projects').select('id,workspace_id,analysis_mode').eq('id', projectId).single(),
+      db.from('benchmarks').select('id,status,benchmark_type,collection_config').eq('id', benchmarkId).eq('project_id', projectId).single(),
+      db
+        .from('research_jobs')
+        .select('id,status,stage,progress,created_at')
+        .eq('project_id', projectId)
+        .eq('job_type', 'observation_collection')
+        .eq('stage', 'multi_surface_observation')
+        .eq('status', 'running')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+    ])
+
+    if (!project || !benchmark) return json({ error: 'Project or benchmark not found' }, 404)
+    if (benchmark.status === 'complete') return json({ complete: true, message: 'All enabled observation surfaces are already complete.' })
+    if (activeJob) {
+      return json({
+        pending: true,
+        job: activeJob,
+        message: 'Approved questions are already running across the configured AI surfaces.',
+      }, 202)
+    }
+
+    const authHeader = req.headers.get('Authorization')
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')
+    const anonKey = Deno.env.get('SUPABASE_ANON_KEY')
+    if (!authHeader || !supabaseUrl) return json({ error: 'Edge Function runtime is missing authenticated invocation context' }, 500)
+
+    const providerReadiness = observationProviderReadiness()
+    const configuredProviderSet = new Set(
+      providerReadiness.filter((item) => item.configured).map((item) => String(item.provider)),
+    )
+
+    const { data: declaredSurfaceRows, error: declaredSurfaceError } = await db
+      .from('benchmark_surfaces')
+      .select('id,provider,status,enabled,metadata')
+      .eq('benchmark_id', benchmark.id)
+      .eq('enabled', true)
+
+    if (declaredSurfaceError) {
+      return json({ error: 'provider_preflight_failed', message: declaredSurfaceError.message }, 500)
+    }
+
+    const declaredSurfaces = declaredSurfaceRows ?? []
+    const configuredSurfaceProviders = Array.from(new Set(
+      declaredSurfaces
+        .filter((surface) => configuredProviderSet.has(String(surface.provider)))
+        .map((surface) => String(surface.provider)),
+    ))
+
+    if (configuredSurfaceProviders.length < MIN_USABLE_PROVIDERS) {
+      const unavailableProviders = declaredSurfaces
+        .filter((surface) => !configuredProviderSet.has(String(surface.provider)))
+        .map((surface) => String(surface.provider))
+
+      return json({
+        error: 'insufficient_observation_providers',
+        message: `Riseklix needs at least ${MIN_USABLE_PROVIDERS} configured AI systems before starting a cross-model benchmark. ${configuredSurfaceProviders.length} ${configuredSurfaceProviders.length === 1 ? 'is' : 'are'} currently configured for this panel.`,
+        minimum_required: MIN_USABLE_PROVIDERS,
+        configured_providers: configuredSurfaceProviders,
+        unavailable_providers: unavailableProviders,
+      }, 503)
+    }
+
+    const unavailableSurfaces = declaredSurfaces.filter(
+      (surface) => !configuredProviderSet.has(String(surface.provider)) && !['complete','failed'].includes(String(surface.status)),
+    )
+    if (unavailableSurfaces.length) {
+      const checkedAt = new Date().toISOString()
+      await Promise.all(unavailableSurfaces.map((surface) =>
+        db.from('benchmark_surfaces').update({
+          status: 'failed',
+          completed_at: checkedAt,
+          metadata: {
+            ...record(surface.metadata),
+            provider_availability: 'not_configured_at_collection_start',
+            provider_preflight_checked_at: checkedAt,
+            last_error: 'This provider was not configured when collection started. No provider call was made.',
+          },
+        }).eq('id', surface.id)
+      ))
+    }
+
+    const userId = String(ctx.userClaims?.id ?? ctx.jwtClaims?.sub ?? '') || null
+    const { data: job, error: jobError } = await db.from('research_jobs').insert({
+      workspace_id: project.workspace_id,
+      project_id: project.id,
+      created_by: userId,
+      job_type: 'observation_collection',
+      status: 'running',
+      progress: 1,
+      stage: 'multi_surface_observation',
+      idempotency_key: 'multi-surface:' + benchmark.id + ':' + crypto.randomUUID(),
+      input: {
+        benchmark_id: benchmark.id,
+        mode: 'all_enabled_surfaces',
+        configured_providers_at_start: configuredSurfaceProviders,
+        unavailable_providers_at_start: declaredSurfaces
+          .filter((surface) => !configuredProviderSet.has(String(surface.provider)))
+          .map((surface) => String(surface.provider)),
+      },
+      started_at: new Date().toISOString(),
+    }).select('id').single()
+
+    if (jobError || !job) return json({ error: jobError?.message ?? 'Could not start multi-surface observation job' }, 400)
+
+    const task = (async () => {
+      const providerPlans = [
+        { provider: 'openai', functionName: 'openai-observation-runner', maxRuns: 2 },
+        { provider: 'google', functionName: 'provider-observation-runner', maxRuns: 2 },
+        { provider: 'anthropic', functionName: 'provider-observation-runner', maxRuns: 2 },
+        { provider: 'perplexity', functionName: 'provider-observation-runner', maxRuns: 2 },
+      ] as const
+
+      const surfaceRows = await db
+        .from('benchmark_surfaces')
+        .select('id,provider,status,enabled,expected_runs,captured_runs,error_runs,metadata')
+        .eq('benchmark_id', benchmark.id)
+        .eq('enabled', true)
+
+      const configured = surfaceRows.data ?? []
+      const runnablePlans = providerPlans.filter((plan) =>
+        configured.some((surface) => {
+          if (!configuredProviderSet.has(plan.provider) || surface.provider !== plan.provider || ['complete','failed'].includes(surface.status) || !surface.enabled) return false
+          const failures = Number(record(surface.metadata).orchestration_failures || 0)
+          return failures < 2
+        })
+      )
+
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        Authorization: authHeader,
+      }
+      if (anonKey) headers.apikey = anonKey
+
+      const results = await Promise.all(runnablePlans.map(async (plan) => {
+        let lastPayload: Record<string, unknown> = {}
+        let error: string | null = null
+
+        for (let batch = 0; batch < 1; batch++) {
+          try {
+            const payload = plan.provider === 'openai'
+              ? { project_id: project.id, benchmark_id: benchmark.id, max_runs: plan.maxRuns }
+              : { project_id: project.id, benchmark_id: benchmark.id, provider: plan.provider, max_runs: plan.maxRuns }
+
+            const response = await fetch(supabaseUrl + '/functions/v1/' + plan.functionName, {
+              method: 'POST',
+              headers,
+              body: JSON.stringify(payload),
+              signal: AbortSignal.timeout(110_000),
+            })
+
+            let parsed: unknown = {}
+            try { parsed = await response.json() } catch {
+              parsed = { error: await response.text() }
+            }
+            lastPayload = record(parsed)
+
+            if (!response.ok || lastPayload.error) {
+              error = String(lastPayload.message || lastPayload.error || ('HTTP ' + response.status))
+              const softBudgetPause = response.status === 429
+                && ['observation_budget_exceeded', 'ai_budget_exceeded'].includes(String(lastPayload.error || ''))
+
+              // Workspace safety limits are not provider failures. Leave the
+              // surface runnable so a later collection pass can continue after
+              // the minute/day budget resets.
+              if (!softBudgetPause) {
+                const surface = configured.find((item) => item.provider === plan.provider)
+                if (surface) {
+                  const failures = Number(record(surface.metadata).orchestration_failures || 0) + 1
+                  await db.from('benchmark_surfaces').update({
+                    status: failures >= 2 ? 'failed' : surface.status,
+                    metadata: {
+                      ...record(surface.metadata),
+                      orchestration_failures: failures,
+                      last_error: error,
+                      last_error_at: new Date().toISOString(),
+                    },
+                    updated_at: new Date().toISOString(),
+                  }).eq('id', surface.id)
+                }
+              }
+              break
+            }
+
+            const batchCaptured = Number(lastPayload.captured ?? 0)
+            const batchFailed = Number(lastPayload.failed ?? 0)
+            if (batchFailed > 0 && batchCaptured === 0) {
+              const surface = configured.find((item) => item.provider === plan.provider)
+              const latestError = await db
+                .from('observation_runs')
+                .select('error_message')
+                .eq('benchmark_id', benchmark.id)
+                .eq('provider', plan.provider)
+                .eq('run_status', 'error')
+                .order('created_at', { ascending: false })
+                .limit(1)
+                .maybeSingle()
+              error = latestError.data?.error_message || 'Every observation in the provider batch failed.'
+              if (surface) {
+                await db.from('benchmark_surfaces').update({
+                  status: 'failed',
+                  metadata: {
+                    ...record(surface.metadata),
+                    orchestration_failures: Math.max(1, Number(record(surface.metadata).orchestration_failures || 0)),
+                    last_error: error,
+                    last_error_at: new Date().toISOString(),
+                    automatic_retry_blocked: true,
+                  },
+                  updated_at: new Date().toISOString(),
+                }).eq('id', surface.id)
+              }
+              break
+            }
+
+            if (lastPayload.surface_complete === true || lastPayload.benchmark_complete === true) break
+            if (Number(lastPayload.remaining ?? 0) <= 0) break
+          } catch (caught) {
+            error = caught instanceof Error ? caught.message : 'Unknown observation orchestration error'
+            const surface = configured.find((item) => item.provider === plan.provider)
+            if (surface) {
+              const failures = Number(record(surface.metadata).orchestration_failures || 0) + 1
+              await db.from('benchmark_surfaces').update({
+                status: failures >= 2 ? 'failed' : surface.status,
+                metadata: {
+                  ...record(surface.metadata),
+                  orchestration_failures: failures,
+                  last_error: error,
+                  last_error_at: new Date().toISOString(),
+                },
+                updated_at: new Date().toISOString(),
+              }).eq('id', surface.id)
+            }
+            break
+          }
+        }
+
+        return { provider: plan.provider, payload: lastPayload, error }
+      }))
+
+      const refreshed = await db
+        .from('benchmark_surfaces')
+        .select('provider,status,expected_runs,captured_runs,error_runs')
+        .eq('benchmark_id', benchmark.id)
+        .eq('enabled', true)
+
+      const surfaces = refreshed.data ?? []
+      const expected = surfaces.reduce((sum, surface) => sum + Number(surface.expected_runs || 0), 0)
+      const captured = surfaces.reduce((sum, surface) => sum + Number(surface.captured_runs || 0), 0)
+      const allTerminal = surfaces.length > 0 && surfaces.every((surface) => ['complete','failed'].includes(surface.status))
+      const minimumUsableProviders = MIN_USABLE_PROVIDERS
+      const usableSurfaces = surfaces.filter((surface) => {
+        const expectedRuns = Number(surface.expected_runs || 0)
+        const capturedRuns = Number(surface.captured_runs || 0)
+        const minimumCaptured = Math.max(1, Math.ceil(expectedRuns * 0.5))
+        return capturedRuns >= minimumCaptured
+      })
+      const excludedSurfaces = surfaces.filter((surface) => !usableSurfaces.some((usable) => usable.provider === surface.provider))
+      const enoughCoverage = usableSurfaces.length >= minimumUsableProviders
+      const complete = allTerminal && enoughCoverage
+      const insufficientCoverage = allTerminal && !enoughCoverage
+      const progress = expected ? Math.min(100, Math.max(1, Math.round((captured / expected) * 100))) : 1
+
+      if (complete || insufficientCoverage) {
+        await db.from('benchmarks').update({
+          status: complete ? 'complete' : 'failed',
+          completed_at: new Date().toISOString(),
+          collection_config: {
+            ...record(benchmark.collection_config),
+            coverage_policy: 'minimum_usable_providers',
+            minimum_usable_providers: minimumUsableProviders,
+            usable_providers: usableSurfaces.map((surface) => surface.provider),
+            excluded_providers: excludedSurfaces.map((surface) => surface.provider),
+            usable_provider_count: usableSurfaces.length,
+            declared_provider_count: surfaces.length,
+          },
+        }).eq('id', benchmark.id)
+      }
+
+      await db.from('research_jobs').update({
+        status: 'succeeded',
+        progress,
+        stage: complete
+          ? 'multi_surface_complete'
+          : insufficientCoverage
+            ? 'multi_surface_insufficient_coverage'
+            : 'multi_surface_batch_complete',
+        output: {
+          benchmark_id: benchmark.id,
+          results,
+          expected,
+          captured,
+          complete,
+          insufficient_coverage: insufficientCoverage,
+          minimum_usable_providers: minimumUsableProviders,
+          usable_providers: usableSurfaces.map((surface) => surface.provider),
+          excluded_providers: excludedSurfaces.map((surface) => surface.provider),
+        },
+        completed_at: new Date().toISOString(),
+      }).eq('id', job.id)
+
+      // In Autopilot, observation completion is not analysis completion: the WHY
+      // layer still needs to finish before the project can be marked complete.
+      // Manual mode keeps the legacy benchmark-complete project state.
+      if (complete && (project.analysis_mode !== 'autopilot' || benchmark.benchmark_type === 'recheck')) {
+        await db.from('projects').update({
+          status: 'complete',
+          updated_at: new Date().toISOString(),
+        }).eq('id', project.id)
+      }
+
+      if (project.analysis_mode === 'autopilot' && benchmark.benchmark_type === 'baseline') {
+        await continueAutopilot(req, project.id)
+      }
+    })().catch(async (error) => {
+      const message = error instanceof Error ? error.message : 'Unknown multi-surface observation error'
+      await db.from('research_jobs').update({
+        status: 'failed',
+        stage: 'multi_surface_observation_failed',
+        error: { message },
+        completed_at: new Date().toISOString(),
+      }).eq('id', job.id)
+    })
+
+    EdgeRuntime.waitUntil(task)
+
+    return json({
+      pending: true,
+      job: { id: job.id, status: 'running', stage: 'multi_surface_observation' },
+      message: 'Approved questions are now running across every configured AI surface.',
+    }, 202)
+  }),
+}
+
+export default handler

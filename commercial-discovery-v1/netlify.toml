@@ -1,7 +1,9 @@
 [build]
-  base = "commercial-discovery-v1"
   command = "npm run build"
   publish = ".next"
 
 [build.environment]
   NEXT_TELEMETRY_DISABLED = "1"
+
+[[plugins]]
+  package = "@netlify/plugin-nextjs"

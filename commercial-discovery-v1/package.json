@@ -1,0 +1,34 @@
+{
+  "name": "riseklix-commercial-discovery-v1",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "security:audit": "npm audit --audit-level=critical",
+    "test:invariants": "node scripts/check-methodology-invariants.mjs",
+    "test:typography": "node scripts/check-typography-contract.mjs",
+    "test:shell": "node scripts/check-shell-ui-contract.mjs"
+  },
+  "dependencies": {
+    "@supabase/ssr": "0.12.7",
+    "@supabase/supabase-js": "2.116.0",
+    "next": "16.3.5",
+    "react": "19.2.0",
+    "react-dom": "19.2.0",
+    "zod": "4.1.11",
+    "@netlify/functions": "6.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "24.10.2",
+    "@types/react": "19.2.7",
+    "@types/react-dom": "19.2.3",
+    "eslint": "9.39.5",
+    "eslint-config-next": "16.3.5",
+    "typescript": "5.9.3",
+    "@netlify/plugin-nextjs": "5.15.13"
+  }
+}

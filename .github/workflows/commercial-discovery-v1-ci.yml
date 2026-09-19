@@ -1,0 +1,37 @@
+name: Commercial Discovery V1 CI
+
+on:
+  push:
+    branches: [commercial-discovery-v1]
+    paths:
+      - 'commercial-discovery-v1/**'
+      - '.github/workflows/commercial-discovery-v1-ci.yml'
+  pull_request:
+    paths:
+      - 'commercial-discovery-v1/**'
+      - '.github/workflows/commercial-discovery-v1-ci.yml'
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: commercial-discovery-v1
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: sb_publishable_ci_placeholder
+      NEXT_PUBLIC_SITE_URL: http://localhost:3000
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install --package-lock-only
+      - run: npm ci
+      - run: npm run security:audit
+      - run: npm run typecheck
+      - run: npm run test:invariants
+      - run: npm run test:typography
+      - run: npm run test:shell
+      - run: npm run lint
+      - run: npm run build
