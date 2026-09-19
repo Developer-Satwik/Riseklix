@@ -49,7 +49,7 @@ const handler = {
 
     const [{ data: project }, { data: benchmark }, { data: activeJob }] = await Promise.all([
       ctx.supabase.from('projects').select('id,workspace_id,analysis_mode').eq('id', projectId).single(),
-      ctx.supabase.from('benchmarks').select('id,status').eq('id', benchmarkId).eq('project_id', projectId).single(),
+      ctx.supabase.from('benchmarks').select('id,status,collection_config').eq('id', benchmarkId).eq('project_id', projectId).single(),
       ctx.supabase
         .from('research_jobs')
         .select('id,status,stage,progress,created_at')
@@ -229,23 +229,54 @@ const handler = {
       const expected = surfaces.reduce((sum, surface) => sum + Number(surface.expected_runs || 0), 0)
       const captured = surfaces.reduce((sum, surface) => sum + Number(surface.captured_runs || 0), 0)
       const allTerminal = surfaces.length > 0 && surfaces.every((surface) => ['complete','failed'].includes(surface.status))
-      const anyComplete = surfaces.some((surface) => surface.status === 'complete')
-      const complete = allTerminal && anyComplete
-      const allFailed = allTerminal && !anyComplete
+      const minimumUsableProviders = surfaces.length >= 2 ? 2 : surfaces.length
+      const usableSurfaces = surfaces.filter((surface) => {
+        const expectedRuns = Number(surface.expected_runs || 0)
+        const capturedRuns = Number(surface.captured_runs || 0)
+        const minimumCaptured = Math.max(1, Math.ceil(expectedRuns * 0.5))
+        return capturedRuns >= minimumCaptured
+      })
+      const excludedSurfaces = surfaces.filter((surface) => !usableSurfaces.some((usable) => usable.provider === surface.provider))
+      const enoughCoverage = usableSurfaces.length >= minimumUsableProviders
+      const complete = allTerminal && enoughCoverage
+      const insufficientCoverage = allTerminal && !enoughCoverage
       const progress = expected ? Math.min(100, Math.max(1, Math.round((captured / expected) * 100))) : 1
 
-      if (complete || allFailed) {
+      if (complete || insufficientCoverage) {
         await ctx.supabase.from('benchmarks').update({
           status: complete ? 'complete' : 'failed',
           completed_at: new Date().toISOString(),
+          collection_config: {
+            ...record(benchmark.collection_config),
+            coverage_policy: 'minimum_usable_providers',
+            minimum_usable_providers: minimumUsableProviders,
+            usable_providers: usableSurfaces.map((surface) => surface.provider),
+            excluded_providers: excludedSurfaces.map((surface) => surface.provider),
+            usable_provider_count: usableSurfaces.length,
+            declared_provider_count: surfaces.length,
+          },
         }).eq('id', benchmark.id)
       }
 
       await ctx.supabase.from('research_jobs').update({
         status: 'succeeded',
         progress,
-        stage: complete ? 'multi_surface_complete' : allFailed ? 'multi_surface_failed' : 'multi_surface_batch_complete',
-        output: { benchmark_id: benchmark.id, results, expected, captured, complete, all_failed: allFailed },
+        stage: complete
+          ? 'multi_surface_complete'
+          : insufficientCoverage
+            ? 'multi_surface_insufficient_coverage'
+            : 'multi_surface_batch_complete',
+        output: {
+          benchmark_id: benchmark.id,
+          results,
+          expected,
+          captured,
+          complete,
+          insufficient_coverage: insufficientCoverage,
+          minimum_usable_providers: minimumUsableProviders,
+          usable_providers: usableSurfaces.map((surface) => surface.provider),
+          excluded_providers: excludedSurfaces.map((surface) => surface.provider),
+        },
         completed_at: new Date().toISOString(),
       }).eq('id', job.id)
 
