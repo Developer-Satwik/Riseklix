@@ -49,7 +49,7 @@ export default async function MethodPage({ params }: { params: Promise<{ id: str
   const usageByStage = new Map<string, { calls: number; cost: number }>()
   for (const event of usageEvents ?? []) {
     const current = usageByStage.get(event.stage) ?? { calls: 0, cost: 0 }
-    current.calls++
+    current.calls += 1
     current.cost += Number(event.estimated_total_cost_usd || 0)
     usageByStage.set(event.stage, current)
   }
@@ -166,15 +166,7 @@ export default async function MethodPage({ params }: { params: Promise<{ id: str
           <h2>Measured provider usage for this project.</h2>
           <p className="method-muted">This ledger records OpenAI token and tool usage from calls made after cost telemetry was enabled. It is separate from safety counters and does not retroactively reconstruct older spend.</p>
           <div className="method-facts">
-            <div><span>Measured OpenAI cost</span><strong>{usageEvents?.length ? '
-        <div className="eyebrow">INTERPRETATION BOUNDARY</div>
-        <h2>Model output is evidence about model behavior — not ground truth about the company.</h2>
-        <p>Capabilities, certifications, client claims and service coverage require source verification. WHY findings are evidence-bounded interpretations and Blueprints must keep unverified claims visibly unresolved.</p>
-      </section>
-    </div>
-  )
-}
- + measuredCost.toFixed(4) : 'Not measured yet'}</strong></div>
+            <div><span>Measured OpenAI cost</span><strong>{usageEvents?.length ? 'USD ' + measuredCost.toFixed(4) : 'Not measured yet'}</strong></div>
             <div><span>API calls logged</span><strong>{usageEvents?.length ?? 0}</strong></div>
             <div><span>Input tokens</span><strong>{measuredInputTokens.toLocaleString()}</strong></div>
             <div><span>Cached input</span><strong>{measuredCachedTokens.toLocaleString()}</strong></div>
@@ -191,15 +183,7 @@ export default async function MethodPage({ params }: { params: Promise<{ id: str
                     <small>{usage.calls} logged call{usage.calls === 1 ? '' : 's'}</small>
                   </div>
                   <div>
-                    <strong>{'
-        <div className="eyebrow">INTERPRETATION BOUNDARY</div>
-        <h2>Model output is evidence about model behavior — not ground truth about the company.</h2>
-        <p>Capabilities, certifications, client claims and service coverage require source verification. WHY findings are evidence-bounded interpretations and Blueprints must keep unverified claims visibly unresolved.</p>
-      </section>
-    </div>
-  )
-}
- + usage.cost.toFixed(4)}</strong>
+                    <strong>{'USD ' + usage.cost.toFixed(4)}</strong>
                     <small>estimated from recorded tokens + tool calls</small>
                   </div>
                 </article>
