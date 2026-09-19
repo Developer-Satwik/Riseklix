@@ -108,6 +108,7 @@ export default async function MethodPage({ params }: { params: Promise<{ id: str
             <article><strong>NC / capture failure</strong><p>The run was not captured successfully. It is missing evidence, not a negative recommendation.</p></article>
             <article><strong>Aided control</strong><p>The company is named to test comprehension. Aided results never count toward unaided discovery visibility.</p></article>
             <article><strong>Before / after</strong><p>Observed change is reported. Direct causality is not claimed automatically because models, competitors and public evidence can change concurrently.</p></article>
+            <article><strong>Review provenance</strong><p>Autopilot acceptance is recorded separately from human review. Automated acceptance never impersonates a human approver.</p></article>
           </div>
         </div>
       </section>
@@ -165,9 +166,9 @@ export default async function MethodPage({ params }: { params: Promise<{ id: str
             <div><strong>{nr}</strong><span>captured NR observations</span></div>
           </div>
           <div className="method-facts">
-            <div><span>Buyer Situation review</span><strong>{autopilotIntentReviews} AI · {manualIntentReviews} human</strong></div>
-            <div><span>Buyer-question review</span><strong>{autopilotPromptReviews} AI · {manualPromptReviews} human</strong></div>
-            <div><span>WHY review</span><strong>{autopilotFindingReviews} AI · {manualFindingReviews} human</strong></div>
+            <div><span>Buyer Situation review</span><strong>{autopilotIntentReviews} Autopilot · {manualIntentReviews} human</strong></div>
+            <div><span>Buyer-question review</span><strong>{autopilotPromptReviews} Autopilot · {manualPromptReviews} human</strong></div>
+            <div><span>WHY review</span><strong>{autopilotFindingReviews} Autopilot · {manualFindingReviews} human</strong></div>
           </div>
         </div>
       </section>
