@@ -7,7 +7,7 @@ const AUTOPILOT_REPETITIONS = 2
 const AUTOPILOT_PROMPT_LIMIT = 12
 const MAX_STAGE_FAILURES = 2
 const LEASE_SECONDS = 75
-const MIN_USABLE_PROVIDERS = 2
+const MIN_USABLE_PROVIDERS = 3
 
 function json(data: unknown, status = 200) {
   return Response.json(data, { status, headers: { 'Cache-Control': 'no-store' } })
