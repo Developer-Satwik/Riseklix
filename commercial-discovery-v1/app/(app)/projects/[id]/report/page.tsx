@@ -80,7 +80,7 @@ export default async function ReportPage({ params }: { params: Promise<{ id: str
   const avgRank = ranked.length ? (ranked.reduce((sum, value) => sum + value, 0) / ranked.length).toFixed(1) : null
 
   const capturedErrors = benchmarkObservations.filter((run) => run.run_status === 'error').length
-  const minimumUsableProviders = benchmarkSurfaces.length >= 3 ? 3 : benchmarkSurfaces.length
+  const minimumUsableProviders = 3
   const usableSurfaces = benchmarkSurfaces.filter((surface) => {
     const expectedRuns = Number(surface.expected_runs || 0)
     const capturedRuns = Number(surface.captured_runs || 0)
