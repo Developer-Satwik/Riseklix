@@ -39,13 +39,13 @@ export default async function BuyerSituationsPage({ params, searchParams }: { pa
   const supabase = await createClient()
 
   const [{ data: intents }, { data: profile }, { data: latestJob }, { data: competitorJobs }, { data: promptJobs }, { data: competitors }, { data: prompts }] = await Promise.all([
-    supabase.from('buyer_intents').select('id,intent_key,title,buyer,job_to_be_done,provenance,provenance_reason,priority,status,commercial_model,geography,constraints,required_capabilities,purchase_stage,language_policy,source_refs').eq('project_id', id).order('created_at'),
+    supabase.from('buyer_intents').select('id,intent_key,title,buyer,job_to_be_done,provenance,provenance_reason,priority,status,review_source,commercial_model,geography,constraints,required_capabilities,purchase_stage,language_policy,source_refs').eq('project_id', id).order('created_at'),
     supabase.from('company_profile_versions').select('status,company_name').eq('project_id', id).eq('is_current', true).single(),
     supabase.from('research_jobs').select('id,status,stage,progress,output,error,created_at').eq('project_id', id).eq('job_type', 'intent_generation').order('created_at', { ascending: false }).limit(1).maybeSingle(),
     supabase.from('research_jobs').select('id,status,stage,progress,error,input,created_at').eq('project_id', id).eq('job_type', 'competitor_discovery').order('created_at', { ascending: false }).limit(50),
     supabase.from('research_jobs').select('id,status,stage,progress,error,input,created_at').eq('project_id', id).eq('job_type', 'prompt_generation').order('created_at', { ascending: false }).limit(50),
     supabase.from('competitor_candidates').select('id,buyer_intent_id,company_name,domain,relationship,discovery_layer,status,matched_constraints,relaxed_constraints,evidence,evidence_strength,rationale,is_current').eq('project_id', id).eq('is_current', true).order('discovery_layer').order('company_name'),
-    supabase.from('prompt_expressions').select('id,buyer_intent_id,language,mode,variant_no,prompt_text,status,is_frozen,version').eq('project_id', id).order('language').order('mode').order('variant_no'),
+    supabase.from('prompt_expressions').select('id,buyer_intent_id,language,mode,variant_no,prompt_text,status,review_source,is_frozen,version').eq('project_id', id).order('language').order('mode').order('variant_no'),
   ])
 
   const error = typeof query.error === 'string' ? query.error : null
@@ -145,7 +145,7 @@ export default async function BuyerSituationsPage({ params, searchParams }: { pa
 
             return (
               <article key={intent.id} className={intent.status === 'rejected' ? 'intent-rejected' : ''}>
-                <div className="intent-meta"><span>{intent.intent_key}</span><span>{intent.provenance}</span><span>{intent.priority}</span><span>{intent.status}</span></div>
+                <div className="intent-meta"><span>{intent.intent_key}</span><span>{intent.provenance}</span><span>{intent.priority}</span><span>{intent.status}</span>{intent.review_source && <span>{intent.review_source === 'autopilot' ? 'AI accepted' : 'human reviewed'}</span>}</div>
                 <div className="intent-not-prompt">COMMERCIAL SITUATION · NOT SENT TO AI</div>
                 <h2>{intent.title}</h2>
                 <p className="intent-job"><span>What the buyer is trying to do</span>{intent.job_to_be_done}</p>
@@ -298,7 +298,7 @@ export default async function BuyerSituationsPage({ params, searchParams }: { pa
                         <div className="prompt-list">
                           {intentPrompts.map((prompt) => (
                             <div className={`prompt-card prompt-${prompt.status}`} key={prompt.id}>
-                              <div className="prompt-card-meta"><span>{prompt.language}</span><span>{prompt.mode === 'unaided' ? 'buyer question' : 'brand check'}</span><span>v{prompt.version}.{prompt.variant_no}</span><span>{prompt.status}</span>{prompt.is_frozen && <span>frozen</span>}</div>
+                              <div className="prompt-card-meta"><span>{prompt.language}</span><span>{prompt.mode === 'unaided' ? 'buyer question' : 'brand check'}</span><span>v{prompt.version}.{prompt.variant_no}</span><span>{prompt.status}</span>{prompt.review_source && <span>{prompt.review_source === 'autopilot' ? 'AI accepted' : 'human reviewed'}</span>}{prompt.is_frozen && <span>frozen</span>}</div>
                               <small className="prompt-human-label">{prompt.mode === 'unaided' ? 'WHAT A BUYER COULD ACTUALLY ASK' : 'SAME DECISION · COMPANY NAMED'}</small>
                               <p>{prompt.prompt_text}</p>
                               <div className="prompt-surface-note">Runs independently across every enabled AI surface.</div>
