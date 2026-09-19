@@ -16,6 +16,28 @@ const ranks: Record<string, number> = {
   low: 3,
 }
 
+async function edgeFunctionErrorMessage(error: unknown) {
+  const candidate = error as { message?: string; context?: unknown } | null
+  const fallback = candidate?.message || 'Blueprint generation failed'
+  const context = candidate?.context
+
+  if (context instanceof Response) {
+    try {
+      const payload = await context.clone().json() as { error?: string; message?: string }
+      return payload?.message || payload?.error || fallback
+    } catch {
+      try {
+        const body = await context.clone().text()
+        return body || fallback
+      } catch {
+        return fallback
+      }
+    }
+  }
+
+  return fallback
+}
+
 export async function generatePriorityFixes(formData: FormData) {
   const parsed = schema.safeParse({
     project_id: formData.get('project_id'),
@@ -68,7 +90,10 @@ export async function generatePriorityFixes(formData: FormData) {
     })
 
     if (error || data?.error) {
-      failures.push(String(data?.message || data?.error || error?.message || 'Blueprint generation failed'))
+      const detail = data?.message || data?.error
+        ? String(data?.message || data?.error)
+        : await edgeFunctionErrorMessage(error)
+      failures.push(detail)
       continue
     }
 
