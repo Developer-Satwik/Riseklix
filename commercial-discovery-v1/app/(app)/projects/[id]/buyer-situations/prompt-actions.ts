@@ -3,6 +3,7 @@
 import { redirect } from 'next/navigation'
 import { z } from 'zod'
 import { createClient } from '@/lib/supabase/server'
+import { isUnaidedRetrievalEligible } from '@/lib/prompt-eligibility'
 
 const generationSchema = z.object({
   project_id: z.string().uuid(),
@@ -94,7 +95,7 @@ async function setPromptStatus(formData: FormData, status: 'approved' | 'rejecte
   const { supabase, userId } = await auth()
   const { data: prompt, error: promptError } = await supabase
     .from('prompt_expressions')
-    .select('id,workspace_id,buyer_intent_id,language,mode,variant_no,is_frozen')
+    .select('id,workspace_id,buyer_intent_id,language,mode,variant_no,prompt_text,is_frozen')
     .eq('id', parsed.data.prompt_id)
     .eq('project_id', parsed.data.project_id)
     .eq('buyer_intent_id', parsed.data.intent_id)
@@ -102,6 +103,9 @@ async function setPromptStatus(formData: FormData, status: 'approved' | 'rejecte
 
   if (promptError || !prompt) redirect(`/projects/${parsed.data.project_id}/buyer-situations?error=${encodeURIComponent('Prompt expression could not be loaded')}`)
   if (prompt.is_frozen) redirect(`/projects/${parsed.data.project_id}/buyer-situations?error=${encodeURIComponent('Frozen benchmark prompts cannot be re-reviewed. Create a new version instead.')}`)
+  if (status === 'approved' && prompt.mode === 'unaided' && !isUnaidedRetrievalEligible(prompt.prompt_text)) {
+    redirect(`/projects/${parsed.data.project_id}/buyer-situations?error=${encodeURIComponent('This unaided question asks for criteria or advice rather than named commercial options. Edit or regenerate it before using it in a retrieval benchmark.')}`)
+  }
 
   const { error } = await supabase.from('prompt_expressions').update({
     status,
