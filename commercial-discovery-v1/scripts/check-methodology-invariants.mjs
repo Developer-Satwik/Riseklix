@@ -90,4 +90,53 @@ requireText(
   'The durable watchdog cron must remain declared in migrations.',
 )
 
+
+const trustedWorkerFunctions = [
+  'auto-analysis-runner',
+  'intent-suggestor',
+  'competitor-discovery',
+  'prompt-expression-generator',
+  'all-observation-runner',
+  'openai-observation-runner',
+  'provider-observation-runner',
+  'why-evaluator',
+].map((name) => ({
+  name,
+  source: read('supabase/functions/' + name + '/index.ts'),
+}))
+
+for (const worker of trustedWorkerFunctions) {
+  requireText(
+    worker.source,
+    "withSupabase({ auth: ['user','secret'] }",
+    worker.name + ' must accept either an authenticated user or trusted secret worker.',
+  )
+  requireText(
+    worker.source,
+    "const db = ctx.authMode === 'user' ? ctx.supabase : ctx.supabaseAdmin",
+    worker.name + ' must keep user calls RLS-scoped and secret-worker calls admin-scoped.',
+  )
+  forbidText(
+    worker.source,
+    "const db = ctx.authMode === 'user' ? db : ctx.supabaseAdmin",
+    worker.name + ' must never self-reference the database client selector.',
+  )
+}
+
+for (const name of [
+  'intent-suggestor',
+  'competitor-discovery',
+  'prompt-expression-generator',
+  'openai-observation-runner',
+  'provider-observation-runner',
+  'why-evaluator',
+]) {
+  const worker = trustedWorkerFunctions.find((item) => item.name === name)
+  requireText(
+    worker.source,
+    "ctx.authMode === 'user' ? 'consume_ai_budget' : 'consume_ai_budget_internal'",
+    name + ' must route trusted worker usage through the service-role-only AI budget RPC.',
+  )
+}
+
 console.log('Methodology invariants passed.')
