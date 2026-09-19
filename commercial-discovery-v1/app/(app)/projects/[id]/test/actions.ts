@@ -95,7 +95,7 @@ async function ensureBaseline(projectId: string) {
   }
 
   const { data: providerPreflight, error: providerPreflightError } = await supabase.functions.invoke('observation-provider-preflight', {
-    body: {},
+    body: { project_id: projectId },
   })
   if (providerPreflightError) {
     const detail = await edgeFunctionErrorMessage(providerPreflightError)
