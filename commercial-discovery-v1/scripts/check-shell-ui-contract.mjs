@@ -44,9 +44,24 @@ requireText(
   'Project actions must occupy the isolated fourth column.',
 )
 forbidText(
-  designSystem,
-  '.project-list-row:hover{background:rgba(255,255,255,.018);padding-left',
-  'Project-row hover must not shift columns and misalign the action control.',
+  read('app/globals.css'),
+  'html[data-sidebar-collapsed="true"] .workspace-sidebar nav a.active{\n  background:rgba(158,175,143,.095)!important;',
+  'Collapsed active navigation must not render a persistent box behind the Projects icon.',
+)
+requireText(
+  read('app/globals.css'),
+  'html[data-sidebar-collapsed="true"] .workspace-sidebar nav a:hover,',
+  'Collapsed navigation should reveal its background only on hover or keyboard focus.',
+)
+requireText(
+  read('app/globals.css'),
+  'width:20px;\n  height:20px;',
+  'Collapsed navigation icons must stay inside a compact fixed icon box.',
+)
+requireText(
+  read('app/globals.css'),
+  'max-width:100%;\n  max-height:100%',
+  'Collapsed navigation SVGs must remain bounded by their icon container.',
 )
 
 console.log('Shell UI contract passed.')
