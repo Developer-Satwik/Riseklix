@@ -65,15 +65,15 @@ type BatchedWhyOutput = {
 
 async function continueAutopilot(req: Request, projectId: string) {
   const authHeader = req.headers.get('Authorization')
+  const apiKeyHeader = req.headers.get('apikey')
   const supabaseUrl = Deno.env.get('SUPABASE_URL')
   const anonKey = Deno.env.get('SUPABASE_ANON_KEY')
-  if (!authHeader || !supabaseUrl) return
+  if (!supabaseUrl || (!authHeader && !apiKeyHeader)) return
 
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    Authorization: authHeader,
-  }
-  if (anonKey) headers.apikey = anonKey
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+  if (authHeader) headers.Authorization = authHeader
+  if (apiKeyHeader) headers.apikey = apiKeyHeader
+  else if (anonKey) headers.apikey = anonKey
 
   try {
     await fetch(supabaseUrl + '/functions/v1/auto-analysis-runner', {
@@ -229,8 +229,10 @@ function compactObservationEvidence(runs: Array<Record<string, unknown>>) {
 }
 
 const handler = {
-  fetch: withSupabase({ auth: 'user' }, async (req, ctx) => {
+  fetch: withSupabase({ auth: ['user','secret'] }, async (req, ctx) => {
     if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405)
+
+    const db = ctx.authMode === 'user' ? db : ctx.supabaseAdmin
 
     let body: RequestBody
     try { body = await req.json() } catch { return json({ error: 'Invalid JSON body' }, 400) }
@@ -244,19 +246,19 @@ const handler = {
     if (!apiKey) return json({ error: 'reasoning_provider_not_configured', message: 'OPENAI_API_KEY is not configured for WHY evaluation.' }, 503)
 
     const [{ data: project, error: projectError }, { data: benchmark, error: benchmarkError }, { data: profile, error: profileError }] = await Promise.all([
-      ctx.supabase.from('projects').select('id,workspace_id,name,domain,market').eq('id', projectId).single(),
-      ctx.supabase.from('benchmarks').select('id,status,benchmark_type,version,collection_config').eq('id', benchmarkId).eq('project_id', projectId).single(),
-      ctx.supabase.from('company_profile_versions').select('id,company_name,summary,industry,business_model,products,services,audiences,geographies,claims,uncertainty').eq('project_id', projectId).eq('is_current', true).single(),
+      db.from('projects').select('id,workspace_id,name,domain,market').eq('id', projectId).single(),
+      db.from('benchmarks').select('id,status,benchmark_type,version,collection_config').eq('id', benchmarkId).eq('project_id', projectId).single(),
+      db.from('company_profile_versions').select('id,company_name,summary,industry,business_model,products,services,audiences,geographies,claims,uncertainty').eq('project_id', projectId).eq('is_current', true).single(),
     ])
 
     if (projectError || benchmarkError || profileError || !project || !benchmark || !profile) return json({ error: 'Project, benchmark or Company Intelligence not found' }, 404)
 
     const [{ data: runs, error: runError }, { data: surfaceRows, error: surfaceError }] = await Promise.all([
-      ctx.supabase
+      db
         .from('observation_runs')
         .select('id,buyer_intent_id,prompt_expression_id,provider,surface,model_label,repetition,language,run_status,retrieval_status,target_rank,raw_answer,extracted_brands,citations,metadata,captured_at,error_message')
         .eq('benchmark_id', benchmark.id),
-      ctx.supabase
+      db
         .from('benchmark_surfaces')
         .select('provider,expected_runs,captured_runs,status,enabled')
         .eq('benchmark_id', benchmark.id)
@@ -294,12 +296,12 @@ const handler = {
     }
 
     const intentIds = Array.from(new Set(capturedRuns.map((run) => run.buyer_intent_id)))
-    const { data: intents } = await ctx.supabase
+    const { data: intents } = await db
       .from('buyer_intents')
       .select('id,intent_key,title,buyer,job_to_be_done,constraints,required_capabilities,geography,commercial_model,purchase_stage,priority')
       .in('id', intentIds)
 
-    const { data: existingFindings } = await ctx.supabase
+    const { data: existingFindings } = await db
       .from('findings')
       .select('buyer_intent_id,is_current')
       .eq('benchmark_id', benchmark.id)
@@ -311,13 +313,13 @@ const handler = {
     if (!eligibleIntents.length) return json({ complete: true, generated: 0, message: 'All captured Buyer Intents already have current WHY findings.' })
 
     const [{ data: competitors }, { data: sources }] = await Promise.all([
-      ctx.supabase.from('competitor_candidates').select('id,buyer_intent_id,company_name,domain,relationship,discovery_layer,matched_constraints,relaxed_constraints,evidence,evidence_strength,rationale,source_refs').eq('project_id', project.id).eq('is_current', true).eq('status', 'verified'),
-      ctx.supabase.from('research_sources').select('id,url,title,source_type,metadata').eq('project_id', project.id).order('captured_at', { ascending: false }).limit(80),
+      db.from('competitor_candidates').select('id,buyer_intent_id,company_name,domain,relationship,discovery_layer,matched_constraints,relaxed_constraints,evidence,evidence_strength,rationale,source_refs').eq('project_id', project.id).eq('is_current', true).eq('status', 'verified'),
+      db.from('research_sources').select('id,url,title,source_type,metadata').eq('project_id', project.id).order('captured_at', { ascending: false }).limit(80),
     ])
 
     const sourceById = new Map((sources ?? []).map((source) => [source.id, source]))
     const model = Deno.env.get('RISEKLIX_WHY_MODEL') || 'gpt-5.6-sol'
-    const budget = await ctx.supabase.rpc('consume_ai_budget', {
+    const budget = await db.rpc('consume_ai_budget', {
       p_project_id: project.id,
       p_kind: 'reasoning',
       p_units: 1,
@@ -333,7 +335,7 @@ const handler = {
     }
 
     const userId = String(ctx.userClaims?.id ?? ctx.jwtClaims?.sub ?? '') || null
-    const { data: job, error: jobError } = await ctx.supabase.from('research_jobs').insert({
+    const { data: job, error: jobError } = await db.from('research_jobs').insert({
       workspace_id: project.workspace_id,
       project_id: project.id,
       created_by: userId,
@@ -465,7 +467,7 @@ ${JSON.stringify(packets)}`,
           },
         })
 
-        await recordOpenAIUsage(ctx.supabase, response, {
+        await recordOpenAIUsage(db, response, {
           workspaceId: project.workspace_id,
           projectId: project.id,
           researchJobId: job.id,
@@ -492,7 +494,7 @@ ${JSON.stringify(packets)}`,
           const findingOutput = resultByIntent.get(intent.id)
 
           if (!findingOutput) {
-            await ctx.supabase.from('review_queue_items').insert({
+            await db.from('review_queue_items').insert({
               workspace_id: project.workspace_id,
               project_id: project.id,
               research_job_id: job.id,
@@ -509,7 +511,7 @@ ${JSON.stringify(packets)}`,
           const sourceRefs = findingOutput.source_refs.filter((ref) => validSourceIds.has(ref))
 
           if (body.regenerate) {
-            await ctx.supabase
+            await db
               .from('findings')
               .update({ is_current: false })
               .eq('benchmark_id', benchmark.id)
@@ -517,7 +519,7 @@ ${JSON.stringify(packets)}`,
               .eq('is_current', true)
           }
 
-          const { data: finding, error: insertError } = await ctx.supabase.from('findings').insert({
+          const { data: finding, error: insertError } = await db.from('findings').insert({
             workspace_id: project.workspace_id,
             project_id: project.id,
             benchmark_id: benchmark.id,
@@ -549,10 +551,10 @@ ${JSON.stringify(packets)}`,
             relation: 'context',
             claim_text: `Evidence context used in WHY evaluation for ${intent.intent_key}.`,
           }))
-          if (links.length) await ctx.supabase.from('evidence_links').insert(links)
+          if (links.length) await db.from('evidence_links').insert(links)
 
           generated++
-          await ctx.supabase.from('research_jobs').update({
+          await db.from('research_jobs').update({
             progress: Math.round(((index + 1) / packets.length) * 100),
             stage: `why_storing_${index + 1}_of_${packets.length}`,
           }).eq('id', job.id)
@@ -560,7 +562,7 @@ ${JSON.stringify(packets)}`,
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Unknown WHY evaluation error'
         for (const packet of packets) {
-          await ctx.supabase.from('review_queue_items').insert({
+          await db.from('review_queue_items').insert({
             workspace_id: project.workspace_id,
             project_id: project.id,
             research_job_id: job.id,
@@ -575,7 +577,7 @@ ${JSON.stringify(packets)}`,
     }
 
     const status = generated ? 'succeeded' : 'failed'
-    await ctx.supabase.from('research_jobs').update({
+    await db.from('research_jobs').update({
       status,
       progress: 100,
       stage: generated ? 'why_findings_ready_for_review' : 'why_evaluation_failed',
@@ -584,7 +586,7 @@ ${JSON.stringify(packets)}`,
       completed_at: new Date().toISOString(),
     }).eq('id', job.id)
 
-    await ctx.supabase.from('audit_events').insert({
+    await db.from('audit_events').insert({
       workspace_id: project.workspace_id,
       project_id: project.id,
       actor_user_id: userId,
@@ -594,7 +596,7 @@ ${JSON.stringify(packets)}`,
       payload: { research_job_id: job.id, model, generated, skipped },
     })
 
-    const currentCount = await ctx.supabase.from('findings').select('id', { count: 'exact', head: true }).eq('benchmark_id', benchmark.id).eq('is_current', true)
+    const currentCount = await db.from('findings').select('id', { count: 'exact', head: true }).eq('benchmark_id', benchmark.id).eq('is_current', true)
     const complete = (currentCount.count ?? 0) >= intentIds.length
 
     await continueAutopilot(req, project.id)
