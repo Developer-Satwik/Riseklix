@@ -1,6 +1,7 @@
 import { withSupabase } from 'npm:@supabase/server'
 import OpenAI from 'npm:openai'
 import { firecrawlSearch, type FirecrawlDocument } from '../_shared/firecrawl.ts'
+import { openAIPromptCacheKey, recordOpenAIUsage } from '../_shared/openai-usage.ts'
 
 declare const EdgeRuntime: { waitUntil(promise: Promise<unknown>): void }
 
@@ -316,6 +317,8 @@ Rules:
         const response = await openai.responses.create({
           model,
           reasoning: { effort: 'medium' },
+          prompt_cache_key: openAIPromptCacheKey(project.id, 'company-intelligence'),
+          prompt_cache_options: { mode: 'implicit', ttl: '30m' },
           ...(firecrawlKey
             ? {}
             : {
@@ -336,6 +339,20 @@ Rules:
           }) + '\n\nExisting company-evidence packets:\n' + JSON.stringify(packets)
             + '\n\nOutside-in retrieval packets:\n' + JSON.stringify(outsideInPackets),
           text: { format: { type: 'json_schema', name: 'riseklix_company_intelligence', strict: true, schema: COMPANY_SCHEMA } },
+        })
+
+        await recordOpenAIUsage(ctx.supabase, response, {
+          workspaceId: project.workspace_id,
+          projectId: project.id,
+          researchJobId: job.id,
+          stage: 'company_intelligence',
+          model,
+          metadata: {
+            profile_version_id: profile.id,
+            first_party_packet_count: packets.length,
+            outside_in_packet_count: outsideInPackets.length,
+            retrieval_provider: firecrawlSources.length ? 'firecrawl' : 'openai_web_search_fallback',
+          },
         })
 
         const raw = outputText(response)
