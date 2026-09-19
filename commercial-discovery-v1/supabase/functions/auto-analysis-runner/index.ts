@@ -44,7 +44,7 @@ function configuredSurfaces(project: { id: string; workspace_id: string }, bench
     })
   }
 
-  if (Deno.env.get('GEMINI_API_KEY') && Deno.env.get('RISEKLIX_ENABLE_GEMINI_OBSERVATIONS') === 'true') {
+  if (Deno.env.get('GEMINI_API_KEY')) {
     surfaces.push({
       workspace_id: project.workspace_id,
       project_id: project.id,
