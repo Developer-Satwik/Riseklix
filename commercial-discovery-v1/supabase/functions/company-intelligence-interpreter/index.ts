@@ -186,8 +186,29 @@ const handler = {
       : 'company-interpretation:' + profile.id + ':v' + profile.version + ':' + model + ':' + sourceSignature
 
     if (!body.regenerate) {
-      const existing = await ctx.supabase.from('research_jobs').select('id,status,stage,progress,output').eq('project_id', project.id).eq('idempotency_key', idempotencyKey).maybeSingle()
-      if (existing.data?.status === 'succeeded') return json({ job: existing.data, reused: true })
+      const existing = await ctx.supabase
+        .from('research_jobs')
+        .select('id,status,stage,progress,output,error')
+        .eq('project_id', project.id)
+        .eq('idempotency_key', idempotencyKey)
+        .maybeSingle()
+
+      if (existing.data && ['queued', 'running', 'succeeded'].includes(existing.data.status)) {
+        return json({
+          job: existing.data,
+          reused: true,
+          pending: existing.data.status !== 'succeeded',
+          message: existing.data.status === 'succeeded'
+            ? 'Company Intelligence is already ready for review.'
+            : 'Company Intelligence verification is already running.',
+        }, existing.data.status === 'succeeded' ? 200 : 202)
+      }
+
+      if (existing.data?.status === 'failed') {
+        await ctx.supabase.from('research_jobs').update({
+          idempotency_key: idempotencyKey + ':failed:' + existing.data.id,
+        }).eq('id', existing.data.id)
+      }
     }
 
     const budget = await ctx.supabase.rpc('consume_ai_budget', {
@@ -212,7 +233,30 @@ const handler = {
       input: { profile_version_id: profile.id, model, source_refs: packets.map((source) => source.ref) },
       started_at: new Date().toISOString(),
     }).select('id').single()
-    if (jobError || !job) return json({ error: jobError?.message ?? 'Could not start Company Intelligence interpretation' }, 400)
+
+    if (jobError || !job) {
+      if (!body.regenerate) {
+        const raced = await ctx.supabase
+          .from('research_jobs')
+          .select('id,status,stage,progress,output,error')
+          .eq('project_id', project.id)
+          .eq('idempotency_key', idempotencyKey)
+          .maybeSingle()
+
+        if (raced.data && ['queued', 'running', 'succeeded'].includes(raced.data.status)) {
+          return json({
+            job: raced.data,
+            reused: true,
+            pending: raced.data.status !== 'succeeded',
+            message: raced.data.status === 'succeeded'
+              ? 'Company Intelligence is already ready for review.'
+              : 'Company Intelligence verification is already running.',
+          }, raced.data.status === 'succeeded' ? 200 : 202)
+        }
+      }
+
+      return json({ error: jobError?.message ?? 'Could not start Company Intelligence interpretation' }, 400)
+    }
 
     const interpretationTask = (async () => {
       try {
