@@ -377,8 +377,9 @@ const handler = {
       if (selected.length) {
         await db.from('buyer_intents').update({
           status: 'approved',
-          approved_by: userId,
+          approved_by: null,
           approved_at: approvedAt,
+          review_source: 'autopilot',
         }).in('id', selected.map((intent) => intent.id))
       }
 
@@ -387,13 +388,14 @@ const handler = {
           status: 'rejected',
           approved_by: null,
           approved_at: null,
+          review_source: 'autopilot',
         }).in('id', notSelected.map((intent) => intent.id))
       }
 
       await db.from('audit_events').insert({
         workspace_id: project.workspace_id,
         project_id: project.id,
-        actor_user_id: userId,
+        actor_user_id: null,
         event_type: 'autopilot_buyer_intents_triaged',
         entity_type: 'project',
         entity_id: project.id,
@@ -401,6 +403,7 @@ const handler = {
           selected: selected.length,
           excluded: notSelected.length,
           limit: AUTOPILOT_INTENT_LIMIT,
+          review_source: 'autopilot',
         },
       })
 
@@ -521,16 +524,26 @@ const handler = {
       const otherCandidates = candidatePrompts.filter((prompt) => prompt.language !== project.primary_language)
 
       if (primaryCandidates.length) {
-        await db.from('prompt_expressions').update({ status: 'approved' }).in('id', primaryCandidates.map((prompt) => prompt.id))
+        await db.from('prompt_expressions').update({
+          status: 'approved',
+          approved_by: null,
+          approved_at: new Date().toISOString(),
+          review_source: 'autopilot',
+        }).in('id', primaryCandidates.map((prompt) => prompt.id))
       }
       if (otherCandidates.length) {
-        await db.from('prompt_expressions').update({ status: 'rejected' }).in('id', otherCandidates.map((prompt) => prompt.id))
+        await db.from('prompt_expressions').update({
+          status: 'rejected',
+          approved_by: null,
+          approved_at: null,
+          review_source: 'autopilot',
+        }).in('id', otherCandidates.map((prompt) => prompt.id))
       }
 
       await db.from('audit_events').insert({
         workspace_id: project.workspace_id,
         project_id: project.id,
-        actor_user_id: userId,
+        actor_user_id: null,
         event_type: 'autopilot_questions_triaged',
         entity_type: 'project',
         entity_id: project.id,
@@ -538,6 +551,7 @@ const handler = {
           approved_primary_language: primaryCandidates.length,
           excluded_other_languages: otherCandidates.length,
           primary_language: project.primary_language,
+          review_source: 'autopilot',
         },
       })
     }
@@ -768,18 +782,19 @@ const handler = {
     if (unreviewed.length) {
       await db.from('findings').update({
         review_status: 'approved',
-        reviewed_by: userId,
+        reviewed_by: null,
         reviewed_at: new Date().toISOString(),
+        review_source: 'autopilot',
       }).in('id', unreviewed.map((finding) => finding.id))
 
       await db.from('audit_events').insert({
         workspace_id: project.workspace_id,
         project_id: project.id,
-        actor_user_id: userId,
+        actor_user_id: null,
         event_type: 'autopilot_findings_accepted',
         entity_type: 'benchmark',
         entity_id: baseline.id,
-        payload: { count: unreviewed.length },
+        payload: { count: unreviewed.length, review_source: 'autopilot' },
       })
     }
 
