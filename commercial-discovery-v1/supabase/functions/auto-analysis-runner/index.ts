@@ -615,7 +615,7 @@ const handler = {
           repetitions_per_expression: AUTOPILOT_REPETITIONS,
           session_policy: 'fresh_session_each_run',
           geography: project.market,
-          surface_policy: 'terminal_when_all_enabled_surfaces_are_complete_or_failed',
+          surface_policy: 'minimum_three_usable_providers; failed providers excluded from aggregate interpretation',
           analysis_mode: 'autopilot',
           max_observation_runs: 120,
         },
