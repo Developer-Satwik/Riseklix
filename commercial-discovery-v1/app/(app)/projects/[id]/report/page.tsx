@@ -17,7 +17,10 @@ function stringArray(value: unknown) {
 }
 
 function severityRank(value: string) {
-  return value === 'critical' ? 0 : value === 'high' ? 1 : value === 'medium' ? 2 : 3
+  if (value === 'urgent' || value === 'critical') return 0
+  if (value === 'opportunity' || value === 'high') return 1
+  if (value === 'monitor' || value === 'medium') return 2
+  return 3
 }
 
 function providerLabel(value: string) {
@@ -392,10 +395,10 @@ export default async function ReportPage({ params }: { params: Promise<{ id: str
         {actionFindings.length ? (
           <>
             <div className="report-priority-summary">
-              <div><span>Critical</span><strong>{priorityCounts.critical ?? 0}</strong></div>
-              <div><span>High</span><strong>{priorityCounts.high ?? 0}</strong></div>
-              <div><span>Medium</span><strong>{priorityCounts.medium ?? 0}</strong></div>
-              <div><span>Low</span><strong>{priorityCounts.low ?? 0}</strong></div>
+              <div><span>Urgent</span><strong>{(priorityCounts.urgent ?? 0) + (priorityCounts.critical ?? 0)}</strong></div>
+              <div><span>Opportunity</span><strong>{(priorityCounts.opportunity ?? 0) + (priorityCounts.high ?? 0)}</strong></div>
+              <div><span>Monitor</span><strong>{(priorityCounts.monitor ?? 0) + (priorityCounts.medium ?? 0)}</strong></div>
+              <div><span>Healthy</span><strong>{(priorityCounts.healthy ?? 0) + (priorityCounts.low ?? 0)}</strong></div>
             </div>
 
             <div className="report-fix-options">
@@ -403,16 +406,16 @@ export default async function ReportPage({ params }: { params: Promise<{ id: str
                 <input type="hidden" name="project_id" value={id} />
                 <input type="hidden" name="scope" value="critical" />
                 <span>01</span>
-                <h3>Critical only</h3>
-                <p>Generate only the changes tied to critical findings. Best when you want the narrowest possible first move.</p>
-                <PendingButton pendingLabel="Generating critical fixes…">Generate critical fixes</PendingButton>
+                <h3>Urgent only</h3>
+                <p>Generate only the changes tied to urgent findings. Best when you want the narrowest possible first move.</p>
+                <PendingButton pendingLabel="Generating urgent fixes…">Generate urgent fixes</PendingButton>
               </form>
               <form action={generatePriorityFixes}>
                 <input type="hidden" name="project_id" value={id} />
                 <input type="hidden" name="scope" value="high" />
                 <span>02</span>
-                <h3>Critical + high</h3>
-                <p>Build the highest-priority implementation set before touching medium-signal issues.</p>
+                <h3>Urgent + opportunity</h3>
+                <p>Build the highest-priority implementation set before touching monitor-level issues.</p>
                 <PendingButton pendingLabel="Generating priority fixes…">Generate priority fixes</PendingButton>
               </form>
               <form action={generatePriorityFixes}>
