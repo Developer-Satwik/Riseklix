@@ -216,7 +216,15 @@ export async function createBaselinePanel(formData: FormData) {
 
   await supabase.from('projects').update({ status: 'running', updated_at: new Date().toISOString() }).eq('id', project.id)
 
-  redirect(`/projects/${project.id}/recheck?message=${encodeURIComponent(`Baseline panel frozen with ${selected.length} approved expressions across ${eligible.length} Buyer Intents`)}`)
+  const baselineStart = await supabase.functions.invoke('all-observation-runner', {
+    body: { project_id: project.id, benchmark_id: benchmark.id },
+  })
+
+  const baselineMessage = baselineStart.error || baselineStart.data?.error
+    ? `Baseline frozen. Collection will retry automatically from the benchmark screen.`
+    : `Baseline frozen and collection started across the configured AI systems.`
+
+  redirect(`/projects/${project.id}/recheck?message=${encodeURIComponent(baselineMessage)}`)
 }
 
 export async function runOpenAIObservationBatch(formData: FormData) {
@@ -311,6 +319,13 @@ export async function createPostChangeRecheck(formData: FormData) {
   const baseConfig = baseline.collection_config && typeof baseline.collection_config === 'object' && !Array.isArray(baseline.collection_config)
     ? baseline.collection_config as Record<string, unknown>
     : {}
+  const {
+    usable_providers: _baselineUsableProviders,
+    excluded_providers: _baselineExcludedProviders,
+    usable_provider_count: _baselineUsableProviderCount,
+    declared_provider_count: _baselineDeclaredProviderCount,
+    ...reusableConfig
+  } = baseConfig
 
   const { data: recheck, error: createError } = await supabase.from('benchmarks').insert({
     workspace_id: project.workspace_id,
@@ -321,7 +336,7 @@ export async function createPostChangeRecheck(formData: FormData) {
     status: 'draft',
     parent_benchmark_id: baseline.id,
     collection_config: {
-      ...baseConfig,
+      ...reusableConfig,
       recheck_of: baseline.id,
       comparison_policy: 'frozen_prompt_panel',
       verified_implementation_ids: verifiedTasks.map((task) => task.id),
@@ -354,23 +369,36 @@ export async function createPostChangeRecheck(formData: FormData) {
     redirect('/projects/' + project.id + '/recheck?error=' + encodeURIComponent(promptError.message))
   }
 
-  const surfaceRows = baselineSurfaces.map((surface) => ({
-    workspace_id: project.workspace_id,
-    project_id: project.id,
-    benchmark_id: recheck.id,
-    provider: surface.provider,
-    surface: surface.surface,
-    model_label: surface.model_label,
-    enabled: true,
-    status: 'draft',
-    expected_runs: surface.expected_runs,
-    captured_runs: 0,
-    error_runs: 0,
-    metadata: {
-      ...(surface.metadata && typeof surface.metadata === 'object' && !Array.isArray(surface.metadata) ? surface.metadata as Record<string, unknown> : {}),
-      copied_from_baseline_surface: true,
-    },
-  }))
+  const surfaceRows = baselineSurfaces.map((surface) => {
+    const sourceMetadata = surface.metadata && typeof surface.metadata === 'object' && !Array.isArray(surface.metadata)
+      ? surface.metadata as Record<string, unknown>
+      : {}
+    const {
+      orchestration_failures: _orchestrationFailures,
+      last_error: _lastError,
+      last_error_at: _lastErrorAt,
+      automatic_retry_blocked: _automaticRetryBlocked,
+      ...staticMetadata
+    } = sourceMetadata
+
+    return {
+      workspace_id: project.workspace_id,
+      project_id: project.id,
+      benchmark_id: recheck.id,
+      provider: surface.provider,
+      surface: surface.surface,
+      model_label: surface.model_label,
+      enabled: true,
+      status: 'draft',
+      expected_runs: surface.expected_runs,
+      captured_runs: 0,
+      error_runs: 0,
+      metadata: {
+        ...staticMetadata,
+        copied_from_baseline_surface: true,
+      },
+    }
+  })
 
   const { error: surfaceError } = await supabase.from('benchmark_surfaces').insert(surfaceRows)
   if (surfaceError) {
@@ -397,7 +425,15 @@ export async function createPostChangeRecheck(formData: FormData) {
     }),
   ])
 
-  redirect('/projects/' + project.id + '/recheck?message=' + encodeURIComponent('Post-change recheck v' + nextVersion + ' created from the frozen baseline panel'))
+  const collectionStart = await supabase.functions.invoke('all-observation-runner', {
+    body: { project_id: project.id, benchmark_id: recheck.id },
+  })
+
+  const message = collectionStart.error || collectionStart.data?.error
+    ? 'Post-change recheck v' + nextVersion + ' created. Collection will retry automatically from this page.'
+    : 'Post-change recheck v' + nextVersion + ' created and collection started automatically.'
+
+  redirect('/projects/' + project.id + '/recheck?message=' + encodeURIComponent(message))
 }
 
 
