@@ -308,6 +308,58 @@ html[data-sidebar-collapsed="true"] .workspace-sidebar nav a[data-tooltip]::afte
 .glimpse-card>p,.landing-workflow-grid p{font-size:var(--type-secondary);line-height:1.6}
 .landing-nav-actions>span{font-size:var(--type-caption)}
 
+
+/* Legacy + specialist surfaces still present in the current app */
+.project-topbar small,.project-topbar span{font-size:var(--type-caption)}
+.project-nav a{font-size:var(--type-caption)}
+.overview-metrics span,.profile-summary>span{font-size:var(--type-micro)}
+.profile-grid pre{font-size:var(--type-caption);line-height:1.55}
+
+.finding-card small,.hypothesis small,.counter-evidence small{font-size:var(--type-micro)}
+.fix-grid article>span,.fix-grid dt{font-size:var(--type-micro)}
+.fix-grid dd{font-size:var(--type-secondary)}
+.timeline article{font-size:var(--type-secondary)}
+.timeline article strong{font-size:var(--type-micro)}
+.timeline article small{font-size:var(--type-caption)}
+
+.sidebar-avatar{font-size:var(--type-micro)}
+.settings-saved-indicator i{font-size:var(--type-micro)}
+.analysis-delete-trigger{font-size:var(--type-caption)}
+.analysis-delete-form>p{font-size:var(--type-secondary);line-height:1.6}
+.analysis-delete-form label{font-size:var(--type-caption)}
+.analysis-delete-form input{font-size:var(--type-body)}
+.analysis-delete-cancel,.analysis-delete-confirm{font-size:var(--type-secondary)}
+
+.spec-number{font-size:var(--type-micro)}
+.spec-checklist li,.spec-steps li,.spec-empty{font-size:var(--type-secondary)!important;line-height:1.55}
+.internal-link-list span,.execution-step-head>span{font-size:var(--type-micro)}
+.internal-link-list strong{font-size:var(--type-secondary)}
+.execution-step-head p{font-size:var(--type-secondary);line-height:1.55}
+.execution-ready-note strong{font-size:var(--type-body)}
+.execution-ready-note p{font-size:var(--type-secondary);line-height:1.6}
+.execution-ready-note a{font-size:var(--type-secondary)}
+
+.job-line span,.profile-state{font-size:var(--type-micro)!important}
+.approval-panel p{font-size:var(--type-secondary);line-height:1.6}
+.intent-engine-state>span{font-size:var(--type-micro)}
+.intent-details summary,.manual-intent-panel summary{font-size:var(--type-secondary)}
+.intent-detail-columns pre{font-size:var(--type-caption);line-height:1.55}
+.manual-intent-form small{font-size:var(--type-micro)}
+
+.sidebar-principle span{font-size:var(--type-micro)}
+.competitor-job-state span,.competitor-job-state small{font-size:var(--type-micro)}
+.competitor-job-state strong{font-size:var(--type-caption)}
+.workspace-sidebar .sidebar-product{font-size:var(--type-micro)!important}
+.crawl-access-warning>span,.intent-not-prompt,.intent-job>span,.intent-provenance-note>small{font-size:var(--type-micro)}
+.plain-research-list em{font-size:var(--type-caption)}
+.prompt-human-label{font-size:var(--type-micro)}
+.workspace-sidebar .sidebar-logo-link strong{font-size:var(--type-caption)}
+.approved-question-panel-head>span,.approved-question-groups header small,.approved-question-groups header>span,.approved-question-list span{font-size:var(--type-micro)}
+.autopilot-banner>span,.autopilot-progress-meta span{font-size:var(--type-micro)}
+
+/* Override earlier !important component rules at the new semantic size. */
+.baseline-builder button,.observation-surface button{font-size:var(--type-secondary)!important}
+
 /* Responsive safeguards: larger text should reflow, never force horizontal compression. */
 @media(max-width:900px){
   .report-finding-ledger article{grid-template-columns:1fr}
