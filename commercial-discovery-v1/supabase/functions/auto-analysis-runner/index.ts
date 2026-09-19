@@ -1,5 +1,6 @@
 import { withSupabase } from 'npm:@supabase/server'
 import { isUnaidedRetrievalEligible } from '../_shared/prompt-eligibility.ts'
+import { intentDecisionFamily, selectAutopilotIntentPortfolio } from '../_shared/autopilot-intent-selection.ts'
 
 type RequestBody = { project_id?: string }
 
@@ -16,10 +17,6 @@ function json(data: unknown, status = 200) {
 
 function record(value: unknown) {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
-}
-
-function priorityRank(value: string) {
-  return value === 'critical' ? 0 : value === 'high' ? 1 : value === 'medium' ? 2 : 3
 }
 
 function configuredSurfaces(project: { id: string; workspace_id: string }, benchmarkId: string, expectedRuns: number) {
@@ -345,7 +342,7 @@ const handler = {
 
     let { data: intents } = await db
       .from('buyer_intents')
-      .select('id,status,intent_key,priority,created_at')
+      .select('id,status,intent_key,priority,provenance,title,buyer,job_to_be_done,purchase_stage,commercial_model,required_capabilities,created_at')
       .eq('project_id', project.id)
       .order('created_at')
 
@@ -363,16 +360,11 @@ const handler = {
 
     const candidates = intents.filter((intent) => intent.status === 'candidate')
     if (candidates.length) {
-      const ordered = [...candidates].sort((a, b) => {
-        const priority = priorityRank(a.priority) - priorityRank(b.priority)
-        if (priority !== 0) return priority
-        return new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
-      })
-
       const alreadyApproved = intents.filter((intent) => intent.status === 'approved')
       const slots = Math.max(AUTOPILOT_INTENT_LIMIT - alreadyApproved.length, 0)
-      const selected = ordered.slice(0, slots)
-      const notSelected = ordered.slice(slots)
+      const selected = selectAutopilotIntentPortfolio(candidates, slots, alreadyApproved)
+      const selectedIds = new Set(selected.map((intent) => intent.id))
+      const notSelected = candidates.filter((intent) => !selectedIds.has(intent.id))
       const approvedAt = new Date().toISOString()
 
       if (selected.length) {
@@ -405,12 +397,20 @@ const handler = {
           excluded: notSelected.length,
           limit: AUTOPILOT_INTENT_LIMIT,
           review_source: 'autopilot',
+          selection_method: 'priority_provenance_revenue_nearness_plus_portfolio_novelty_v1',
+          selected_intents: selected.map((intent) => ({
+            intent_id: intent.id,
+            intent_key: intent.intent_key,
+            priority: intent.priority,
+            provenance: intent.provenance,
+            decision_family: intentDecisionFamily(intent),
+          })),
         },
       })
 
       const refreshed = await db
         .from('buyer_intents')
-        .select('id,status,intent_key,priority,created_at')
+        .select('id,status,intent_key,priority,provenance,title,buyer,job_to_be_done,purchase_stage,commercial_model,required_capabilities,created_at')
         .eq('project_id', project.id)
         .order('created_at')
       intents = refreshed.data ?? intents

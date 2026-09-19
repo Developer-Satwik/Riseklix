@@ -34,6 +34,7 @@ const edgePromptEligibility = read('supabase/functions/_shared/prompt-eligibilit
 const buyerSituationsPage = read('app/(app)/projects/[id]/buyer-situations/page.tsx')
 const whyPage = read('app/(app)/projects/[id]/why/page.tsx')
 const methodPage = read('app/(app)/projects/[id]/method/page.tsx')
+const autopilotIntentSelection = read('supabase/functions/_shared/autopilot-intent-selection.ts')
 
 requireText(
   report,
@@ -237,6 +238,69 @@ requireText(
   "Automated acceptance never impersonates a human approver.",
   'Method documentation must preserve the review-provenance boundary.',
 )
+
+
+requireText(
+  autopilot,
+  'selectAutopilotIntentPortfolio(candidates, slots, alreadyApproved)',
+  'Autopilot must select a commercial portfolio instead of taking the first N high-priority intents.',
+)
+requireText(
+  autopilot,
+  "selection_method: 'priority_provenance_revenue_nearness_plus_portfolio_novelty_v1'",
+  'Autopilot intent triage must leave an auditable selection-method marker.',
+)
+
+const transpiledIntentSelection = ts.transpileModule(autopilotIntentSelection, {
+  compilerOptions: {
+    module: ts.ModuleKind.CommonJS,
+    target: ts.ScriptTarget.ES2020,
+  },
+}).outputText
+const intentSelectionModule = { exports: {} }
+new Function('module', 'exports', transpiledIntentSelection)(
+  intentSelectionModule,
+  intentSelectionModule.exports,
+)
+const { selectAutopilotIntentPortfolio, intentDecisionFamily } = intentSelectionModule.exports
+
+const portfolioCandidates = [
+  { id: 'c1', intent_key: 'INT-001', priority: 'critical', provenance: 'adapted', title: 'Shortlist a shared inbox', purchase_stage: 'Vendor shortlist and capability comparison', job_to_be_done: 'Compare vendors for a shared inbox', required_capabilities: ['shared inbox'] },
+  { id: 'c2', intent_key: 'INT-002', priority: 'critical', provenance: 'adapted', title: 'Validate chatbot handoff', purchase_stage: 'Technical qualification', job_to_be_done: 'Validate automation to human handoff', required_capabilities: ['chatbot', 'human handoff'] },
+  { id: 'c3', intent_key: 'INT-003', priority: 'critical', provenance: 'adapted', title: 'Confirm another chatbot control', purchase_stage: 'Technical qualification', job_to_be_done: 'Validate another chatbot escalation control', required_capabilities: ['chatbot', 'human handoff'] },
+  { id: 'c4', intent_key: 'INT-004', priority: 'critical', provenance: 'adapted', title: 'Confirm routing setup', purchase_stage: 'Technical qualification', job_to_be_done: 'Validate another technical routing requirement', required_capabilities: ['routing', 'handoff'] },
+  { id: 'u1', intent_key: 'INT-005', priority: 'critical', provenance: 'adapted', title: 'Launch reorder journey', purchase_stage: 'Use-case evaluation', job_to_be_done: 'Automate ecommerce replenishment journeys', required_capabilities: ['reorder workflow'] },
+  { id: 'h1', intent_key: 'INT-006', priority: 'high', provenance: 'adapted', title: 'Approve subscription budget', purchase_stage: 'Commercial evaluation and budget approval', job_to_be_done: 'Understand price limits and total cost', required_capabilities: ['pricing', 'subscription limits'] },
+]
+const portfolio = selectAutopilotIntentPortfolio(portfolioCandidates, 4)
+if (portfolio.length !== 4) {
+  throw new Error('Methodology invariant failed: Autopilot portfolio must respect its configured slot limit.')
+}
+const portfolioFamilies = new Set(portfolio.map(intentDecisionFamily))
+if (portfolioFamilies.size < 4) {
+  throw new Error('Methodology invariant failed: comparable intents should not collapse all Autopilot slots into one decision family.')
+}
+if (!portfolio.some((intent) => intent.id === 'h1')) {
+  throw new Error('Methodology invariant failed: a commercially relevant high-priority novel decision can beat a redundant critical intent.')
+}
+
+const provenanceTie = selectAutopilotIntentPortfolio([
+  { id: 'exploratory', intent_key: 'INT-020', priority: 'critical', provenance: 'exploratory', title: 'Shortlist vendors', purchase_stage: 'Vendor shortlist' },
+  { id: 'adapted', intent_key: 'INT-021', priority: 'critical', provenance: 'adapted', title: 'Shortlist vendors', purchase_stage: 'Vendor shortlist' },
+], 1)
+if (provenanceTie[0]?.id !== 'adapted') {
+  throw new Error('Methodology invariant failed: evidence-adapted intent should beat a comparable exploratory intent.')
+}
+
+const seededPortfolio = selectAutopilotIntentPortfolio([
+  { id: 'selection-duplicate', intent_key: 'INT-030', priority: 'critical', provenance: 'adapted', title: 'Compare another vendor shortlist', purchase_stage: 'Vendor shortlist' },
+  { id: 'technical-novel', intent_key: 'INT-031', priority: 'high', provenance: 'adapted', title: 'Validate integration requirements', purchase_stage: 'Technical qualification' },
+], 1, [
+  { id: 'existing-selection', intent_key: 'INT-029', priority: 'critical', provenance: 'adapted', title: 'Shortlist vendors', purchase_stage: 'Vendor shortlist' },
+])
+if (seededPortfolio[0]?.id !== 'technical-novel') {
+  throw new Error('Methodology invariant failed: existing approved intents must influence remaining portfolio novelty.')
+}
 
 const trustedWorkerFunctions = [
   'auto-analysis-runner',
