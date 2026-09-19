@@ -184,7 +184,7 @@ Do not add, infer or correct brands. Process each item independently. A brand is
 }
 
 async function benchmarkCompletion(ctx: { supabase: SupabaseClient }, benchmarkId: string) {
-  const { data: surfaces } = await ctx.supabase
+  const { data: surfaces } = await db
     .from('benchmark_surfaces')
     .select('status,enabled')
     .eq('benchmark_id', benchmarkId)
@@ -193,16 +193,18 @@ async function benchmarkCompletion(ctx: { supabase: SupabaseClient }, benchmarkI
   const enabled = surfaces ?? []
   const complete = enabled.length > 0 && enabled.every((item: { status: string }) => item.status === 'complete')
   if (complete) {
-    await ctx.supabase.from('benchmarks').update({ status: 'complete', completed_at: new Date().toISOString() }).eq('id', benchmarkId)
+    await db.from('benchmarks').update({ status: 'complete', completed_at: new Date().toISOString() }).eq('id', benchmarkId)
   } else {
-    await ctx.supabase.from('benchmarks').update({ status: 'running', completed_at: null }).eq('id', benchmarkId)
+    await db.from('benchmarks').update({ status: 'running', completed_at: null }).eq('id', benchmarkId)
   }
   return complete
 }
 
 const handler = {
-  fetch: withSupabase({ auth: 'user' }, async (req, ctx) => {
+  fetch: withSupabase({ auth: ['user','secret'] }, async (req, ctx) => {
     if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405)
+
+    const db = ctx.authMode === 'user' ? db : ctx.supabaseAdmin
 
     let body: RequestBody
     try { body = await req.json() } catch { return json({ error: 'Invalid JSON body' }, 400) }
@@ -216,9 +218,9 @@ const handler = {
     if (!apiKey) return json({ error: 'observation_provider_not_configured', message: 'OPENAI_API_KEY is not configured for the OpenAI observation surface.' }, 503)
 
     const [{ data: project, error: projectError }, { data: benchmark, error: benchmarkError }, { data: profile }] = await Promise.all([
-      ctx.supabase.from('projects').select('id,workspace_id,name,market').eq('id', projectId).single(),
-      ctx.supabase.from('benchmarks').select('id,status,benchmark_type,version,collection_config').eq('id', benchmarkId).eq('project_id', projectId).single(),
-      ctx.supabase.from('company_profile_versions').select('company_name').eq('project_id', projectId).eq('is_current', true).single(),
+      db.from('projects').select('id,workspace_id,name,market').eq('id', projectId).single(),
+      db.from('benchmarks').select('id,status,benchmark_type,version,collection_config').eq('id', benchmarkId).eq('project_id', projectId).single(),
+      db.from('company_profile_versions').select('company_name').eq('project_id', projectId).eq('is_current', true).single(),
     ])
 
     if (projectError || benchmarkError || !project || !benchmark || !profile) return json({ error: 'Project, benchmark or target company not found' }, 404)
@@ -231,14 +233,14 @@ const handler = {
     const provider = 'openai'
     const surface = 'openai_responses_web_search'
 
-    const { data: members, error: memberError } = await ctx.supabase
+    const { data: members, error: memberError } = await db
       .from('benchmark_prompts')
       .select('buyer_intent_id,prompt_expression_id')
       .eq('benchmark_id', benchmark.id)
     if (memberError || !members?.length) return json({ error: 'benchmark_has_no_prompts' }, 409)
 
     const promptIds = members.map((member) => member.prompt_expression_id)
-    const { data: prompts, error: promptError } = await ctx.supabase
+    const { data: prompts, error: promptError } = await db
       .from('prompt_expressions')
       .select('id,buyer_intent_id,language,mode,prompt_text,status,is_frozen')
       .in('id', promptIds)
@@ -247,7 +249,7 @@ const handler = {
     const eligiblePrompts = prompts.filter((prompt) => prompt.status === 'approved' && prompt.is_frozen)
     const expected = eligiblePrompts.length * repetitions
 
-    const { data: surfaceConfig, error: surfaceError } = await ctx.supabase
+    const { data: surfaceConfig, error: surfaceError } = await db
       .from('benchmark_surfaces')
       .select('id,enabled,status')
       .eq('benchmark_id', benchmark.id)
@@ -259,7 +261,7 @@ const handler = {
     if (surfaceConfig && !surfaceConfig.enabled) return json({ error: 'surface_disabled', message: 'This observation surface is disabled for the benchmark.' }, 409)
 
     if (!surfaceConfig) {
-      const { error: createSurfaceError } = await ctx.supabase.from('benchmark_surfaces').insert({
+      const { error: createSurfaceError } = await db.from('benchmark_surfaces').insert({
         workspace_id: project.workspace_id,
         project_id: project.id,
         benchmark_id: benchmark.id,
@@ -274,7 +276,7 @@ const handler = {
       if (createSurfaceError) return json({ error: createSurfaceError.message }, 400)
     }
 
-    const { data: existingRuns } = await ctx.supabase
+    const { data: existingRuns } = await db
       .from('observation_runs')
       .select('prompt_expression_id,repetition,run_status')
       .eq('benchmark_id', benchmark.id)
@@ -294,7 +296,7 @@ const handler = {
 
     if (!planned.length) {
       const errors = (existingRuns ?? []).filter((run) => run.run_status === 'error').length
-      await ctx.supabase.from('benchmark_surfaces').update({
+      await db.from('benchmark_surfaces').update({
         model_label: observationModel,
         status: 'complete',
         expected_runs: expected,
@@ -309,7 +311,7 @@ const handler = {
 
     const batch = planned.slice(0, maxRuns)
     const observationUnits = Math.max(1, batch.length * 2)
-    const budget = await ctx.supabase.rpc('consume_ai_budget', {
+    const budget = await db.rpc('consume_ai_budget', {
       p_project_id: project.id,
       p_kind: 'observation',
       p_units: observationUnits,
@@ -325,7 +327,7 @@ const handler = {
     }
 
     const userId = String(ctx.userClaims?.id ?? ctx.jwtClaims?.sub ?? '') || null
-    const { data: job, error: jobError } = await ctx.supabase.from('research_jobs').insert({
+    const { data: job, error: jobError } = await db.from('research_jobs').insert({
       workspace_id: project.workspace_id,
       project_id: project.id,
       created_by: userId,
@@ -340,8 +342,8 @@ const handler = {
     if (jobError || !job) return json({ error: jobError?.message ?? 'Could not start observation batch' }, 400)
 
     const now = new Date().toISOString()
-    await ctx.supabase.from('benchmarks').update({ status: 'running', started_at: now, completed_at: null }).eq('id', benchmark.id).eq('status', 'draft')
-    await ctx.supabase.from('benchmark_surfaces').update({
+    await db.from('benchmarks').update({ status: 'running', started_at: now, completed_at: null }).eq('id', benchmark.id).eq('status', 'draft')
+    await db.from('benchmark_surfaces').update({
       model_label: observationModel,
       status: 'running',
       expected_runs: expected,
@@ -357,7 +359,7 @@ const handler = {
 
     for (let index = 0; index < batch.length; index++) {
       const plan = batch[index]
-      const { data: competitors } = await ctx.supabase
+      const { data: competitors } = await db
         .from('competitor_candidates')
         .select('company_name')
         .eq('buyer_intent_id', plan.buyerIntentId)
@@ -378,7 +380,7 @@ const handler = {
           input: plan.promptText,
         })
 
-        await recordOpenAIUsage(ctx.supabase, response, {
+        await recordOpenAIUsage(db, response, {
           workspaceId: project.workspace_id,
           projectId: project.id,
           researchJobId: job.id,
@@ -406,7 +408,7 @@ const handler = {
       } catch (error) {
         failed++
         const message = error instanceof Error ? error.message : 'Unknown observation error'
-        await ctx.supabase.from('observation_runs').upsert({
+        await db.from('observation_runs').upsert({
           workspace_id: project.workspace_id,
           project_id: project.id,
           benchmark_id: benchmark.id,
@@ -433,7 +435,7 @@ const handler = {
       }
 
       const progress = Math.max(5, Math.round(((index + 1) / batch.length) * 70))
-      await ctx.supabase.from('research_jobs').update({ progress, stage: `openai_observation_${index + 1}_of_${batch.length}` }).eq('id', job.id)
+      await db.from('research_jobs').update({ progress, stage: `openai_observation_${index + 1}_of_${batch.length}` }).eq('id', job.id)
     }
 
     const extractionByKey = new Map<string, Extraction>()
@@ -448,7 +450,7 @@ const handler = {
 
       try {
         const batchExtraction = await extractBrandsBatch(openai, extractionModel, extractionItems, project.id)
-        await recordOpenAIUsage(ctx.supabase, batchExtraction.response, {
+        await recordOpenAIUsage(db, batchExtraction.response, {
           workspaceId: project.workspace_id,
           projectId: project.id,
           researchJobId: job.id,
@@ -513,7 +515,7 @@ ${item.answer}`,
             },
           })
 
-          await recordOpenAIUsage(ctx.supabase, response, {
+          await recordOpenAIUsage(db, response, {
             workspaceId: project.workspace_id,
             projectId: project.id,
             researchJobId: job.id,
@@ -537,12 +539,12 @@ ${item.answer}`,
         }
       }
 
-      await ctx.supabase.from('research_jobs').update({ progress: 85, stage: 'openai_brand_extraction_complete' }).eq('id', job.id)
+      await db.from('research_jobs').update({ progress: 85, stage: 'openai_brand_extraction_complete' }).eq('id', job.id)
 
       for (const item of pendingCaptures) {
         const key = `${item.plan.promptId}:${item.plan.repetition}`
         const extraction = extractionByKey.get(key)!
-        const { error: insertError } = await ctx.supabase.from('observation_runs').upsert({
+        const { error: insertError } = await db.from('observation_runs').upsert({
           workspace_id: project.workspace_id,
           project_id: project.id,
           benchmark_id: benchmark.id,
@@ -586,7 +588,7 @@ ${item.answer}`,
       }
     }
 
-    const { data: allRuns } = await ctx.supabase
+    const { data: allRuns } = await db
       .from('observation_runs')
       .select('prompt_expression_id,repetition,run_status')
       .eq('benchmark_id', benchmark.id)
@@ -598,7 +600,7 @@ ${item.answer}`,
     const surfaceComplete = capturedKeys.size >= expected
     const terminalFailure = !surfaceComplete && capturedKeys.size === 0 && errorRuns >= expected
 
-    await ctx.supabase.from('benchmark_surfaces').update({
+    await db.from('benchmark_surfaces').update({
       model_label: observationModel,
       status: surfaceComplete ? 'complete' : terminalFailure ? 'failed' : 'running',
       expected_runs: expected,
@@ -610,7 +612,7 @@ ${item.answer}`,
 
     const benchmarkComplete = await benchmarkCompletion(ctx, benchmark.id)
 
-    await ctx.supabase.from('research_jobs').update({
+    await db.from('research_jobs').update({
       status: failed && !captured ? 'failed' : 'succeeded',
       progress: 100,
       stage: surfaceComplete ? 'openai_surface_complete' : 'openai_observation_batch_complete',
