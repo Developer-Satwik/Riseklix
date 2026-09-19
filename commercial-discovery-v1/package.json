@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
-    "security:audit": "npm audit --audit-level=critical"
+    "security:audit": "npm audit --audit-level=critical",
+    "test:invariants": "node scripts/check-methodology-invariants.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "0.12.7",
