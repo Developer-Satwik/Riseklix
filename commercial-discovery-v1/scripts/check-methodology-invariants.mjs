@@ -179,6 +179,16 @@ requireText(
   "withSupabase({ auth: ['user','secret'] }",
   'Provider preflight must require an authenticated user or trusted worker context.',
 )
+requireText(
+  providerPreflight,
+  "const db = ctx.authMode === 'user' ? ctx.supabase : ctx.supabaseAdmin",
+  'Provider preflight must validate project access through the caller-scoped database client.',
+)
+requireText(
+  testActions,
+  "body: { project_id: projectId }",
+  'Manual provider preflight must be scoped to the project being benchmarked.',
+)
 forbidText(
   providerPreflight,
   'missingSecrets',
