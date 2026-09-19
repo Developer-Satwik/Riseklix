@@ -141,6 +141,42 @@ forbidText(
   'Autopilot release details must never be spread into database columns.',
 )
 
+
+const manualIntentActions = read('app/(app)/projects/[id]/buyer-situations/actions.ts')
+const manualPromptActions = read('app/(app)/projects/[id]/buyer-situations/prompt-actions.ts')
+const manualWhyActions = read('app/(app)/projects/[id]/why/actions.ts')
+
+requireText(
+  autoRunner,
+  "review_source: 'autopilot'",
+  'Autopilot decisions must record that the system, not a human reviewer, accepted them.',
+)
+requireText(
+  autoRunner,
+  "approved_by: null",
+  'Autopilot Buyer Situation and question acceptance must not impersonate a human approver.',
+)
+requireText(
+  autoRunner,
+  "reviewed_by: null",
+  'Autopilot WHY acceptance must not impersonate a human reviewer.',
+)
+requireText(
+  manualIntentActions,
+  "review_source: 'manual'",
+  'Manual Buyer Situation review must retain human-review provenance.',
+)
+requireText(
+  manualPromptActions,
+  "review_source: 'manual'",
+  'Manual buyer-question review must retain human-review provenance.',
+)
+requireText(
+  manualWhyActions,
+  "review_source: 'manual'",
+  'Manual WHY review must retain human-review provenance.',
+)
+
 for (const name of [
   'intent-suggestor',
   'competitor-discovery',
