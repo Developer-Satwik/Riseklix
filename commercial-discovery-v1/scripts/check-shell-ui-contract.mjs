@@ -16,6 +16,7 @@ const sidebar = read('components/workspace-sidebar.tsx')
 const profileMenu = read('components/profile-menu.tsx')
 const projectsPage = read('app/(app)/projects/page.tsx')
 const designSystem = read('app/design-system.css')
+const globals = read('app/globals.css')
 
 forbidText(sidebar, 'sidebar-workspace-state', 'The retired Beta badge must not return to the workspace sidebar.')
 forbidText(sidebar, '>Beta<', 'The workspace sidebar must not present a Beta label.')
@@ -44,9 +45,29 @@ requireText(
   'Project actions must occupy the isolated fourth column.',
 )
 forbidText(
+  globals,
+  'html[data-sidebar-collapsed="true"] .workspace-sidebar nav a.active{\n  background:rgba(158,175,143,.095)!important;',
+  'Collapsed active navigation must not render a persistent box behind the Projects icon.',
+)
+forbidText(
   designSystem,
   '.project-list-row:hover{background:rgba(255,255,255,.018);padding-left',
   'Project-row hover must not shift columns and misalign the action control.',
+)
+requireText(
+  globals,
+  'html[data-sidebar-collapsed="true"] .workspace-sidebar nav a:hover,',
+  'Collapsed navigation should reveal its background only on hover or keyboard focus.',
+)
+requireText(
+  globals,
+  'width:20px;\n  height:20px;',
+  'Collapsed navigation icons must stay inside a compact fixed icon box.',
+)
+requireText(
+  globals,
+  'max-width:100%;max-height:100%',
+  'Collapsed navigation SVGs must remain bounded by their icon container.',
 )
 
 console.log('Shell UI contract passed.')
