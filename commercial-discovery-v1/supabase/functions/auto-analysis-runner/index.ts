@@ -44,7 +44,7 @@ function configuredSurfaces(project: { id: string; workspace_id: string }, bench
     })
   }
 
-  if (Deno.env.get('GEMINI_API_KEY')) {
+  if (Deno.env.get('GEMINI_API_KEY') && Deno.env.get('RISEKLIX_ENABLE_GEMINI_OBSERVATIONS') === 'true') {
     surfaces.push({
       workspace_id: project.workspace_id,
       project_id: project.id,
@@ -65,13 +65,13 @@ function configuredSurfaces(project: { id: string; workspace_id: string }, bench
     })
   }
 
-  if (Deno.env.get('ANTHROPIC_API_KEY')) {
+  if (Deno.env.get('ANTHROPIC_API_KEY') && Deno.env.get('FIRECRAWL_API_KEY')) {
     surfaces.push({
       workspace_id: project.workspace_id,
       project_id: project.id,
       benchmark_id: benchmarkId,
       provider: 'anthropic',
-      surface: 'anthropic_messages_web_search',
+      surface: 'anthropic_messages_firecrawl_grounded',
       model_label: null,
       enabled: true,
       status: 'draft',
@@ -79,8 +79,8 @@ function configuredSurfaces(project: { id: string; workspace_id: string }, bench
       captured_runs: 0,
       error_runs: 0,
       metadata: {
-        display_name: 'Claude · Sonnet API proxy',
-        methodology_note: 'Anthropic Messages API with web search. Results remain separate from the Claude consumer application.',
+        display_name: 'Claude · Haiku + Firecrawl',
+        methodology_note: 'Claude Haiku 4.5 receives compact Firecrawl search evidence. This is an API observation proxy, not Claude consumer search or Anthropic native web search.',
         consumer_equivalence: 'approximate',
       },
     })
