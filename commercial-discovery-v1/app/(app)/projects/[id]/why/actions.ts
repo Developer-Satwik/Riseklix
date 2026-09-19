@@ -80,6 +80,7 @@ async function setFindingStatus(formData: FormData, reviewStatus: 'approved' | '
     review_status: reviewStatus,
     reviewed_by: userId,
     reviewed_at: new Date().toISOString(),
+    review_source: 'manual',
   }).eq('id', finding.id)
   if (error) redirect(`/projects/${parsed.data.project_id}/why?error=${encodeURIComponent(error.message)}`)
 
