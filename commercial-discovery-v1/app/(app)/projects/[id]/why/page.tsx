@@ -80,7 +80,7 @@ export default async function WhyPage({ params, searchParams }: { params: Promis
           return (
             <article key={finding.id} className="finding-card">
               <header>
-                <div className="finding-badges"><span>{finding.finding_type.replaceAll('_', ' ')}</span><span>{finding.severity}</span><span>{finding.evidence_strength} evidence</span><span>{finding.review_status}</span>{finding.review_source && <span>{finding.review_source === 'autopilot' ? 'AI accepted' : 'human reviewed'}</span>}</div>
+                <div className="finding-badges"><span>{finding.finding_type.replaceAll('_', ' ')}</span><span>{finding.severity}</span><span>{finding.evidence_strength} evidence</span><span>{finding.review_status}</span>{finding.review_source && <span>{finding.review_source === 'autopilot' ? 'Autopilot accepted · not human reviewed' : 'Human reviewed'}</span>}</div>
                 <strong>{finding.decision.replaceAll('_', ' ')}</strong>
               </header>
               {intent && <div className="finding-intent"><small>{intent.intent_key} · {intent.priority}</small><h2>{intent.title}</h2></div>}

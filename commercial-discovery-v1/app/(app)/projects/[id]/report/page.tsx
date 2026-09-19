@@ -31,6 +31,19 @@ function providerLabel(value: string) {
   return value
 }
 
+function reviewSourceLabel(value: string | null | undefined) {
+  if (value === 'autopilot') return 'Autopilot accepted · not human reviewed'
+  if (value === 'manual') return 'Human reviewed'
+  return null
+}
+
+function surfaceLabel(surface: { provider: string; surface: string; metadata: unknown }) {
+  const meta = record(surface.metadata)
+  return typeof meta.display_name === 'string' && meta.display_name.trim()
+    ? meta.display_name
+    : providerLabel(surface.provider) + ' · ' + surface.surface
+}
+
 function brandName(value: unknown) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null
   const name = (value as Record<string, unknown>).name
@@ -58,11 +71,11 @@ export default async function ReportPage({ params }: { params: Promise<{ id: str
     supabase.from('projects').select('id,name,domain,market,status,analysis_mode,primary_language,updated_at').eq('id', id).single(),
     supabase.from('company_profile_versions').select('company_name,industry,business_model,summary,products,services,audiences,geographies,uncertainty').eq('project_id', id).eq('is_current', true).maybeSingle(),
     supabase.from('benchmarks').select('id,status,version,benchmark_type,created_at,completed_at,collection_config').eq('project_id', id).order('created_at', { ascending: false }).limit(1).maybeSingle(),
-    supabase.from('buyer_intents').select('id,intent_key,title,buyer,job_to_be_done,priority,status,provenance,provenance_reason').eq('project_id', id).eq('status', 'approved').order('created_at'),
+    supabase.from('buyer_intents').select('id,intent_key,title,buyer,job_to_be_done,priority,status,provenance,provenance_reason,review_source').eq('project_id', id).eq('status', 'approved').order('created_at'),
     supabase.from('prompt_expressions').select('id,buyer_intent_id,mode,language,prompt_text,status').eq('project_id', id).eq('status', 'approved'),
     supabase.from('observation_runs').select('id,benchmark_id,buyer_intent_id,prompt_expression_id,provider,run_status,retrieval_status,target_rank,extracted_brands,citations,error_message,captured_at').eq('project_id', id),
     supabase.from('benchmark_surfaces').select('benchmark_id,provider,surface,status,expected_runs,captured_runs,error_runs,metadata').eq('project_id', id).eq('enabled', true),
-    supabase.from('findings').select('id,buyer_intent_id,finding_type,severity,decision,observed,aided_control,competitor_pattern,client_evidence,counter_evidence,explanation,evidence_strength,review_status,is_current').eq('project_id', id).eq('is_current', true),
+    supabase.from('findings').select('id,buyer_intent_id,finding_type,severity,decision,observed,aided_control,competitor_pattern,client_evidence,counter_evidence,explanation,evidence_strength,review_status,review_source,is_current').eq('project_id', id).eq('is_current', true),
     supabase.from('competitor_candidates').select('id,buyer_intent_id,company_name,domain,relationship,evidence_strength,rationale,is_current,status').eq('project_id', id).eq('is_current', true).eq('status', 'verified'),
     supabase.from('blueprints').select('id,finding_id,status,version,title').eq('project_id', id),
     supabase.from('research_sources').select('id,url,title,source_type,captured_at').eq('project_id', id).order('captured_at', { ascending: false }).limit(30),
@@ -119,8 +132,12 @@ export default async function ReportPage({ params }: { params: Promise<{ id: str
     const rows = unaided.filter((run) => run.provider === provider)
     const hits = rows.filter((run) => run.retrieval_status === 'retrieved').length
     const providerRanks = rows.map((run) => run.target_rank).filter((value): value is number => typeof value === 'number')
+    const surface = usableSurfaces.find((item) => item.provider === provider)
+    const surfaceMeta = record(surface?.metadata)
     return {
       provider,
+      displayName: surface ? surfaceLabel(surface) : providerLabel(provider),
+      methodologyNote: typeof surfaceMeta.methodology_note === 'string' ? surfaceMeta.methodology_note : null,
       total: rows.length,
       hits,
       avgRank: providerRanks.length ? (providerRanks.reduce((sum, value) => sum + value, 0) / providerRanks.length).toFixed(1) : null,
@@ -249,7 +266,7 @@ export default async function ReportPage({ params }: { params: Promise<{ id: str
                 <article key={finding.id}>
                   <div>
                     <span className={'report-decision-pill ' + finding.decision}>{finding.decision.replaceAll('_', ' ')}</span>
-                    <small>{finding.severity} · {finding.evidence_strength} evidence</small>
+                    <small>{finding.severity} · {finding.evidence_strength} evidence{reviewSourceLabel(finding.review_source) ? ' · ' + reviewSourceLabel(finding.review_source) : ''}</small>
                   </div>
                   <h3>{intent?.title || finding.finding_type.replaceAll('_', ' ')}</h3>
                   <p>{finding.observed}</p>
@@ -272,7 +289,7 @@ export default async function ReportPage({ params }: { params: Promise<{ id: str
           {intentRows.map((intent) => (
             <article key={intent.id}>
               <div>
-                <small>{intent.intent_key}</small>
+                <small>{intent.intent_key} · {intent.provenance}{reviewSourceLabel(intent.review_source) ? ' · ' + reviewSourceLabel(intent.review_source) : ''}</small>
                 <strong>{intent.title}</strong>
                 <p>{intent.job_to_be_done}</p>
               </div>
@@ -293,15 +310,16 @@ export default async function ReportPage({ params }: { params: Promise<{ id: str
         <div className="report-engine-grid">
           {providerStats.map((stat) => (
             <article key={stat.provider}>
-              <span>{providerLabel(stat.provider)}</span>
+              <span>{stat.displayName}</span>
               <strong>{stat.hits}/{stat.total}</strong>
               <p>Unaided retrieval</p>
               <small>{stat.avgRank ? 'Average surfaced rank #' + stat.avgRank : 'No surfaced rank in captured runs'}</small>
+              {stat.methodologyNote && <small>{stat.methodologyNote}</small>}
             </article>
           ))}
           {excludedSurfaces.map((surface) => (
             <article key={'excluded-' + surface.provider}>
-              <span>{providerLabel(surface.provider)}</span>
+              <span>{surfaceLabel(surface)}</span>
               <strong>Excluded</strong>
               <p>{surface.status === 'failed' ? 'Capture failed' : 'Insufficient usable capture'}</p>
               <small>{surface.captured_runs}/{surface.expected_runs} captured · {surface.error_runs} error{surface.error_runs === 1 ? '' : 's'}</small>
@@ -314,6 +332,7 @@ export default async function ReportPage({ params }: { params: Promise<{ id: str
           <strong>{usableSurfaces.length} of {benchmarkSurfaces.length} AI systems included</strong>
           <span>{usableSurfaces.length >= minimumUsableProviders ? 'Minimum cross-model coverage met.' : 'Minimum cross-model coverage was not met.'}</span>
           <span>{capturedErrors} provider/capture error{capturedErrors === 1 ? '' : 's'} kept outside retrieval denominators.</span>
+          <span>Surface names and methodology come from the frozen benchmark configuration. API proxies are not presented as equivalent to consumer-app interfaces.</span>
           {!!excludedSurfaces.length && <span>{excludedSurfaces.map((surface) => providerLabel(surface.provider)).join(', ')} excluded from aggregate interpretation because usable capture was insufficient.</span>}
         </div>
       </section>
@@ -371,7 +390,7 @@ export default async function ReportPage({ params }: { params: Promise<{ id: str
             return (
               <article key={finding.id}>
                 <header>
-                  <div><span>{finding.decision.replaceAll('_', ' ')}</span><small>{finding.evidence_strength} evidence</small></div>
+                  <div><span>{finding.decision.replaceAll('_', ' ')}</span><small>{finding.evidence_strength} evidence{reviewSourceLabel(finding.review_source) ? ' · ' + reviewSourceLabel(finding.review_source) : ''}</small></div>
                   <strong>{intent?.title || finding.finding_type.replaceAll('_', ' ')}</strong>
                 </header>
                 <div>
