@@ -50,7 +50,7 @@ export default async function ReportPage({ params }: { params: Promise<{ id: str
     supabase.from('buyer_intents').select('id,intent_key,title,buyer,job_to_be_done,priority,status,provenance,provenance_reason').eq('project_id', id).eq('status', 'approved').order('created_at'),
     supabase.from('prompt_expressions').select('id,buyer_intent_id,mode,language,prompt_text,status').eq('project_id', id).eq('status', 'approved'),
     supabase.from('observation_runs').select('id,benchmark_id,buyer_intent_id,prompt_expression_id,provider,run_status,retrieval_status,target_rank,extracted_brands,citations,error_message,captured_at').eq('project_id', id),
-    supabase.from('benchmark_surfaces').select('provider,surface,status,expected_runs,captured_runs,error_runs,metadata').eq('project_id', id).eq('enabled', true),
+    supabase.from('benchmark_surfaces').select('benchmark_id,provider,surface,status,expected_runs,captured_runs,error_runs,metadata').eq('project_id', id).eq('enabled', true),
     supabase.from('findings').select('id,buyer_intent_id,finding_type,severity,decision,observed,aided_control,competitor_pattern,client_evidence,counter_evidence,explanation,evidence_strength,review_status,is_current').eq('project_id', id).eq('is_current', true),
     supabase.from('competitor_candidates').select('id,buyer_intent_id,company_name,domain,relationship,evidence_strength,rationale,is_current,status').eq('project_id', id).eq('is_current', true).eq('status', 'verified'),
     supabase.from('blueprints').select('id,finding_id,status,version,title').eq('project_id', id),
@@ -69,7 +69,9 @@ export default async function ReportPage({ params }: { params: Promise<{ id: str
 
   const promptById = new Map((prompts ?? []).map((prompt) => [prompt.id, prompt]))
   const intentById = new Map((intents ?? []).map((intent) => [intent.id, intent]))
-  const captured = (observations ?? []).filter((run) => run.run_status === 'captured')
+  const benchmarkObservations = (observations ?? []).filter((run) => !benchmark?.id || run.benchmark_id === benchmark.id)
+  const benchmarkSurfaces = (surfaces ?? []).filter((surface) => !benchmark?.id || surface.benchmark_id === benchmark.id)
+  const captured = benchmarkObservations.filter((run) => run.run_status === 'captured')
   const unaided = captured.filter((run) => promptById.get(run.prompt_expression_id)?.mode === 'unaided')
   const aided = captured.filter((run) => promptById.get(run.prompt_expression_id)?.mode === 'aided')
   const unaidedRetrieved = unaided.filter((run) => run.retrieval_status === 'retrieved')
@@ -77,7 +79,15 @@ export default async function ReportPage({ params }: { params: Promise<{ id: str
   const ranked = unaidedRetrieved.map((run) => run.target_rank).filter((value): value is number => typeof value === 'number')
   const avgRank = ranked.length ? (ranked.reduce((sum, value) => sum + value, 0) / ranked.length).toFixed(1) : null
 
-  const capturedErrors = (observations ?? []).filter((run) => run.run_status === 'error').length
+  const capturedErrors = benchmarkObservations.filter((run) => run.run_status === 'error').length
+  const minimumUsableProviders = benchmarkSurfaces.length >= 2 ? 2 : benchmarkSurfaces.length
+  const usableSurfaces = benchmarkSurfaces.filter((surface) => {
+    const expectedRuns = Number(surface.expected_runs || 0)
+    const capturedRuns = Number(surface.captured_runs || 0)
+    return capturedRuns >= Math.max(1, Math.ceil(expectedRuns * 0.5))
+  })
+  const usableProviderSet = new Set(usableSurfaces.map((surface) => surface.provider))
+  const excludedSurfaces = benchmarkSurfaces.filter((surface) => !usableProviderSet.has(surface.provider))
   const actionFindings = (findings ?? [])
     .filter((finding) => finding.review_status === 'approved' && finding.decision === 'fix')
     .sort((a, b) => severityRank(a.severity) - severityRank(b.severity))
@@ -269,13 +279,22 @@ export default async function ReportPage({ params }: { params: Promise<{ id: str
               <small>{stat.avgRank ? 'Average surfaced rank #' + stat.avgRank : 'No surfaced rank in captured runs'}</small>
             </article>
           ))}
-          {!providerStats.length && <p>No captured unaided observation runs are available.</p>}
+          {excludedSurfaces.map((surface) => (
+            <article key={'excluded-' + surface.provider}>
+              <span>{providerLabel(surface.provider)}</span>
+              <strong>Excluded</strong>
+              <p>{surface.status === 'failed' ? 'Capture failed' : 'Insufficient usable capture'}</p>
+              <small>{surface.captured_runs}/{surface.expected_runs} captured · {surface.error_runs} error{surface.error_runs === 1 ? '' : 's'}</small>
+            </article>
+          ))}
+          {!providerStats.length && !excludedSurfaces.length && <p>No captured unaided observation runs are available.</p>}
         </div>
 
         <div className="report-capture-note">
-          <strong>{captured.length} captured answers</strong>
+          <strong>{usableSurfaces.length} of {benchmarkSurfaces.length} AI systems included</strong>
+          <span>{usableSurfaces.length >= minimumUsableProviders ? 'Minimum cross-model coverage met.' : 'Minimum cross-model coverage was not met.'}</span>
           <span>{capturedErrors} provider/capture error{capturedErrors === 1 ? '' : 's'} kept outside retrieval denominators.</span>
-          <span>{surfaces?.length ?? 0} declared observation surface{surfaces?.length === 1 ? '' : 's'}.</span>
+          {!!excludedSurfaces.length && <span>{excludedSurfaces.map((surface) => providerLabel(surface.provider)).join(', ')} excluded from aggregate interpretation because usable capture was insufficient.</span>}
         </div>
       </section>
 
