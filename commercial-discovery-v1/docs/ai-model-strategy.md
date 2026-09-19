@@ -23,7 +23,7 @@ Approved buyer questions are frozen once, then reused across every enabled obser
 | Provider | Default API surface | Default model | Consumer equivalence |
 | --- | --- | --- | --- |
 | OpenAI | Responses API + web search | GPT-5.6 Luna | Approximate free-plan proxy |
-| Google | Gemini GenerateContent + Google Search | Gemini 3.8 Flash | Opt-in API proxy; disabled until billing/quota is activated |
+| Google | Gemini GenerateContent + Google Search | Gemini 3.8 Flash | Approximate API proxy; enabled whenever GEMINI_API_KEY is configured |
 | Anthropic | Messages API + Firecrawl search evidence | Claude Haiku 4.5 | Approximate API proxy; not Claude native web search |
 | Perplexity | Sonar API | Sonar | Approximate API proxy |
 
@@ -72,7 +72,9 @@ The product should show the buyer question once, then the observed answer/result
 
 ## Observation cost policy
 
-High-volume observation should use economical models and bounded external retrieval. Claude observations default to Haiku 4.5 and receive compact Firecrawl search-result evidence instead of Anthropic's native web-search tool. This reduces token amplification and native search charges while keeping the observation methodology explicit. Gemini is opt-in through `RISEKLIX_ENABLE_GEMINI_OBSERVATIONS=true` after its API billing/quota is intentionally enabled.
+High-volume observation should use economical models and bounded external retrieval. Claude observations default to Haiku 4.5 and receive compact Firecrawl search-result evidence instead of Anthropic's native web-search tool. This reduces token amplification and native search charges while keeping the observation methodology explicit. Gemini is included whenever `GEMINI_API_KEY` is configured.
+
+Cross-model reporting requires at least two usable AI providers. A provider is usable when at least half of its expected captures succeed. Failed or unavailable providers remain visible as excluded evidence, are never counted as "not retrieved," and do not block the report once the minimum two-provider threshold is met.
 
 
 ## Cost-control architecture
