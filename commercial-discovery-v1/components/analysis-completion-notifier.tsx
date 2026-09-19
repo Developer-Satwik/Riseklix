@@ -2,8 +2,12 @@
 
 import { useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import {
+  ANALYSIS_NOTIFICATION_ENABLED_AT_KEY,
+  getAnalysisNotificationState,
+  showAnalysisNotification,
+} from '@/lib/analysis-notifications'
 
-const ENABLED_KEY = 'riseklix.analysis.notifications'
 const SEEN_KEY = 'riseklix.analysis.notifications.seen'
 
 function seenIds() {
@@ -25,12 +29,11 @@ export function AnalysisCompletionNotifier() {
 
     async function checkCompleted() {
       if (cancelled) return
-      if (window.localStorage.getItem(ENABLED_KEY) !== 'true') return
-      if (!('Notification' in window) || Notification.permission !== 'granted') return
+      if (getAnalysisNotificationState() !== 'on') return
 
       const supabase = createClient()
       const fallbackCutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
-      const enabledAt = window.localStorage.getItem('riseklix.analysis.notifications.enabled_at')
+      const enabledAt = window.localStorage.getItem(ANALYSIS_NOTIFICATION_ENABLED_AT_KEY)
       const cutoff = enabledAt && !Number.isNaN(Date.parse(enabledAt)) && enabledAt > fallbackCutoff
         ? enabledAt
         : fallbackCutoff
@@ -51,37 +54,23 @@ export function AnalysisCompletionNotifier() {
       const { data: projects } = await supabase.from('projects').select('id,name').in('id', ids)
       const names = new Map((projects ?? []).map((project) => [project.id, project.name]))
 
-      let registration: ServiceWorkerRegistration | null = null
-      if ('serviceWorker' in navigator) {
-        try {
-          registration = await navigator.serviceWorker.register('/analysis-notifications-sw.js')
-        } catch {
-          registration = null
-        }
-      }
+      let changed = false
 
       for (const run of unseen) {
         if (cancelled) return
         const name = names.get(run.project_id) || 'Your company'
-        try {
-          if (registration) {
-            await registration.showNotification('Your Riseklix analysis is ready', {
-              body: name + ' has finished Commercial Discovery. Open the report to review the evidence and prioritized fixes.',
-              tag: 'riseklix-analysis-' + run.project_id,
-              data: { url: '/projects/' + run.project_id + '/report' },
-            })
-          } else {
-            new Notification('Your Riseklix analysis is ready', {
-              body: name + ' has finished Commercial Discovery.',
-            })
-          }
-        } catch {
-          // Notification delivery is best-effort.
-        }
+        const delivered = await showAnalysisNotification('Your Riseklix analysis is ready', {
+          body: name + ' has finished Commercial Discovery. Open the report to review the evidence and prioritized fixes.',
+          tag: 'riseklix-analysis-' + run.project_id,
+          data: { url: '/projects/' + run.project_id + '/report' },
+        })
+
+        if (!delivered) continue
         seen.add(run.project_id)
+        changed = true
       }
 
-      saveSeen(seen)
+      if (changed) saveSeen(seen)
     }
 
     void checkCompleted()
