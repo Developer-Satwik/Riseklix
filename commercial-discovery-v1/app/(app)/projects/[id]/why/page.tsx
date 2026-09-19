@@ -8,7 +8,7 @@ export default async function WhyPage({ params, searchParams }: { params: Promis
   const supabase = await createClient()
 
   const [{ data: findings }, { data: intents }, { data: benchmarks }, { data: observations }, { data: sources }] = await Promise.all([
-    supabase.from('findings').select('id,benchmark_id,buyer_intent_id,finding_type,severity,decision,observed,aided_control,competitor_pattern,client_evidence,counter_evidence,explanation,evidence_strength,review_status,source_refs,is_current,created_at').eq('project_id', id).eq('is_current', true).order('created_at', { ascending: false }),
+    supabase.from('findings').select('id,benchmark_id,buyer_intent_id,finding_type,severity,decision,observed,aided_control,competitor_pattern,client_evidence,counter_evidence,explanation,evidence_strength,review_status,review_source,source_refs,is_current,created_at').eq('project_id', id).eq('is_current', true).order('created_at', { ascending: false }),
     supabase.from('buyer_intents').select('id,intent_key,title,priority').eq('project_id', id),
     supabase.from('benchmarks').select('id,benchmark_type,version,status,created_at').eq('project_id', id).order('created_at', { ascending: false }),
     supabase.from('observation_runs').select('id,benchmark_id,buyer_intent_id,run_status').eq('project_id', id),
@@ -80,7 +80,7 @@ export default async function WhyPage({ params, searchParams }: { params: Promis
           return (
             <article key={finding.id} className="finding-card">
               <header>
-                <div className="finding-badges"><span>{finding.finding_type.replaceAll('_', ' ')}</span><span>{finding.severity}</span><span>{finding.evidence_strength} evidence</span><span>{finding.review_status}</span></div>
+                <div className="finding-badges"><span>{finding.finding_type.replaceAll('_', ' ')}</span><span>{finding.severity}</span><span>{finding.evidence_strength} evidence</span><span>{finding.review_status}</span>{finding.review_source && <span>{finding.review_source === 'autopilot' ? 'AI accepted' : 'human reviewed'}</span>}</div>
                 <strong>{finding.decision.replaceAll('_', ' ')}</strong>
               </header>
               {intent && <div className="finding-intent"><small>{intent.intent_key} · {intent.priority}</small><h2>{intent.title}</h2></div>}
