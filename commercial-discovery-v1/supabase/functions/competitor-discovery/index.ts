@@ -467,8 +467,6 @@ RULES
         .filter((candidate) => candidate.evidence.length > 0)
         .slice(0, 12)
 
-      if (validated.length < 2) throw new Error('Competitor discovery did not produce enough evidence-backed candidates')
-
       const evidenceRows = validated.flatMap((candidate) => candidate.evidence.map((item) => ({
         workspace_id: project.workspace_id,
         project_id: project.id,
@@ -490,13 +488,19 @@ RULES
       })))
 
       const dedupedEvidence = Array.from(new Map(evidenceRows.map((row) => [row.url, row])).values())
-      const { data: storedSources, error: sourceError } = await ctx.supabase
-        .from('research_sources')
-        .upsert(dedupedEvidence, { onConflict: 'project_id,url' })
-        .select('id,url')
+      let storedSources: Array<{ id: string; url: string }> = []
 
-      if (sourceError) throw sourceError
-      const sourceIdByUrl = new Map((storedSources ?? []).map((source) => [source.url, source.id]))
+      if (dedupedEvidence.length) {
+        const stored = await ctx.supabase
+          .from('research_sources')
+          .upsert(dedupedEvidence, { onConflict: 'project_id,url' })
+          .select('id,url')
+
+        if (stored.error) throw stored.error
+        storedSources = stored.data ?? []
+      }
+
+      const sourceIdByUrl = new Map(storedSources.map((source) => [source.url, source.id]))
 
       if (body.regenerate) {
         await ctx.supabase
@@ -526,14 +530,27 @@ RULES
         rationale: candidate.rationale,
       }))
 
-      const { data: inserted, error: insertError } = await ctx.supabase
-        .from('competitor_candidates')
-        .insert(rows)
-        .select('id,company_name,domain,relationship,discovery_layer,evidence_strength,source_refs')
+      let inserted: Array<{
+        id: string
+        company_name: string
+        domain: string
+        relationship: string
+        discovery_layer: number
+        evidence_strength: string
+        source_refs: unknown
+      }> = []
 
-      if (insertError) throw insertError
+      if (rows.length) {
+        const result = await ctx.supabase
+          .from('competitor_candidates')
+          .insert(rows)
+          .select('id,company_name,domain,relationship,discovery_layer,evidence_strength,source_refs')
 
-      const links = (inserted ?? []).flatMap((candidate) => {
+        if (result.error) throw result.error
+        inserted = result.data ?? []
+      }
+
+      const links = inserted.flatMap((candidate) => {
         const refs = Array.isArray(candidate.source_refs) ? candidate.source_refs : []
         return refs.filter((ref): ref is string => typeof ref === 'string').map((sourceId) => ({
           workspace_id: project.workspace_id,
@@ -557,8 +574,9 @@ RULES
           intent_id: intent.id,
           intent_key: intent.intent_key,
           summary: parsed.summary,
-          generated: inserted?.length ?? 0,
-          source_count: storedSources?.length ?? 0,
+          generated: inserted.length,
+          source_count: storedSources.length,
+          coverage: inserted.length ? 'evidence_backed_candidates' : 'no_defensible_candidates_found',
           source_validation: firecrawlSources.length ? 'firecrawl_retrieval_match' : 'openai_web_search_source_match',
           retrieval_provider: firecrawlSources.length ? 'firecrawl' : 'openai_web_search_fallback',
         },
@@ -572,7 +590,7 @@ RULES
         event_type: 'intent_competitors_discovered',
         entity_type: 'buyer_intent',
         entity_id: intent.id,
-        payload: { research_job_id: job.id, model, generated: inserted?.length ?? 0 },
+        payload: { research_job_id: job.id, model, generated: inserted.length, coverage: inserted.length ? 'evidence_backed_candidates' : 'no_defensible_candidates_found' },
       })
 
       await continueAutopilot(req, project.id)
@@ -585,6 +603,7 @@ RULES
           error: { message, model },
           completed_at: new Date().toISOString(),
         }).eq('id', job.id)
+        await continueAutopilot(req, project.id)
       }
     })()
 
