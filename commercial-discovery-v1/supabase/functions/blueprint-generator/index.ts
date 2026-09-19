@@ -1,5 +1,6 @@
 import { withSupabase } from 'npm:@supabase/server'
 import OpenAI from 'npm:openai'
+import { openAIPromptCacheKey, recordOpenAIUsage } from '../_shared/openai-usage.ts'
 
 declare const EdgeRuntime: { waitUntil(promise: Promise<unknown>): void }
 
@@ -313,12 +314,41 @@ const handler = {
       try {
         await ctx.supabase.from('research_jobs').update({ progress: 35, stage: 'generating_implementation_blueprint' }).eq('id', job.id)
       const openai = new OpenAI({ apiKey })
-      const response = await openai.responses.create({
+      const preferredServiceTier = Deno.env.get('RISEKLIX_BLUEPRINT_SERVICE_TIER') || 'flex'
+      const createBlueprintResponse = (serviceTier: 'standard' | 'flex') => openai.responses.create({
         model,
         reasoning: { effort: 'high' },
+        service_tier: serviceTier,
+        prompt_cache_key: openAIPromptCacheKey(project.id, 'blueprint'),
+        prompt_cache_options: { mode: 'implicit', ttl: '30m' },
         instructions: `You are the Implementation Blueprint engine for Riseklix Commercial Discovery.\n\nA human has approved a WHY finding and explicitly decided that a fix is justified. Convert that exact evidence-backed gap into a deployable implementation specification. Do not broaden the scope merely to create more work.\n\nRules:\n1. Every recommendation must trace back to the approved finding, Buyer Intent, or supplied evidence.\n2. Do not invent company claims, certifications, locations, SLAs, fleet sizes, case studies, customers, performance numbers or capabilities. Put anything needed but not established into claims_to_verify or evidence_required.\n3. Prefer upgrading an existing relevant page when the supplied first-party evidence shows one can carry the buying situation. Propose a new page only when the information architecture genuinely lacks an appropriate destination.\n4. For target_mode=existing_page, target_url must be one of the supplied first-party URLs. For target_mode=new_page, use a same-domain URL or path.\n5. Do not recommend schema types merely because they exist. structured_data.prerequisites must state what facts/content must actually be present before markup is appropriate. Empty recommended_types is valid.\n6. required_sections are implementation requirements, not generic SEO headings. They should answer the buyer's decision: capability, commercial model, geography, delivery/service lifecycle, proof, limits, procurement details or other relevant evidence.\n7. opening_answer is a concise answer-first passage that may be used near the top of a page, but it must not contain unverified claims.\n8. Internal links must connect existing supplied URLs to the target when evidence supports a useful relationship. Do not invent source URLs. For a new target, to_url may be the proposed target path.\n9. acceptance_criteria must be objectively reviewable by Riseklix later. Include evidence presence and deployment checks separately from future AI outcome checks.\n10. measurement_plan must not promise causality. It should say what delivery will be verified and which frozen Buyer Intent/prompt panel should be rechecked afterward.\n11. No pricing or service upsell belongs in the Blueprint. Execution routing happens separately.\n12. source_refs may contain only supplied refs.`,
         input: `Target company and project:\n${JSON.stringify({ company: profile.company_name, domain: project.domain, market: project.market, profile })}\n\nApproved Buyer Intent:\n${JSON.stringify(intent)}\n\nApproved WHY finding:\n${JSON.stringify(finding)}\n\nIntent-specific competitors:\n${JSON.stringify(competitors ?? [])}\n\nEvidence sources:\n${JSON.stringify(evidenceSources)}`,
         text: { format: { type: 'json_schema', name: 'riseklix_implementation_blueprint', strict: true, schema: BLUEPRINT_SCHEMA } },
+      })
+
+      let response
+      let serviceTier: 'standard' | 'flex' = preferredServiceTier === 'flex' ? 'flex' : 'standard'
+      try {
+        response = await createBlueprintResponse(serviceTier)
+      } catch (error) {
+        if (serviceTier !== 'flex') throw error
+        serviceTier = 'standard'
+        response = await createBlueprintResponse('standard')
+      }
+
+      await recordOpenAIUsage(ctx.supabase, response, {
+        workspaceId: project.workspace_id,
+        projectId: project.id,
+        researchJobId: job.id,
+        stage: 'blueprint_generation',
+        model,
+        serviceTier,
+        metadata: {
+          finding_id: finding.id,
+          buyer_intent_id: finding.buyer_intent_id,
+          version: nextVersion,
+          background_processing: true,
+        },
       })
 
       const raw = outputText(response)
