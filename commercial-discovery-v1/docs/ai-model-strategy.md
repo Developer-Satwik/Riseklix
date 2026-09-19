@@ -23,8 +23,8 @@ Approved buyer questions are frozen once, then reused across every enabled obser
 | Provider | Default API surface | Default model | Consumer equivalence |
 | --- | --- | --- | --- |
 | OpenAI | Responses API + web search | GPT-5.6 Luna | Approximate free-plan proxy |
-| Google | Gemini GenerateContent + Google Search | Gemini 3.8 Flash | Approximate API proxy |
-| Anthropic | Messages API + server web search | Claude Sonnet 5 | Approximate API proxy |
+| Google | Gemini GenerateContent + Google Search | Gemini 3.8 Flash | Opt-in API proxy; disabled until billing/quota is activated |
+| Anthropic | Messages API + Firecrawl search evidence | Claude Haiku 4.5 | Approximate API proxy; not Claude native web search |
 | Perplexity | Sonar API | Sonar | Approximate API proxy |
 
 The same question text, language, geography policy and repetition count should be used on every enabled surface. This gives us a comparable panel without pretending the products are internally identical.
@@ -68,3 +68,8 @@ Provider subscriptions and API billing are separate products. Each API account m
 Riseklix does not produce one blended “AI visibility score” and hide where it came from.
 
 The product should show the buyer question once, then the observed answer/result from each declared surface separately. Cross-model summaries are derived only after the underlying evidence remains inspectable.
+
+
+## Observation cost policy
+
+High-volume observation should use economical models and bounded external retrieval. Claude observations default to Haiku 4.5 and receive compact Firecrawl search-result evidence instead of Anthropic's native web-search tool. This reduces token amplification and native search charges while keeping the observation methodology explicit. Gemini is opt-in through `RISEKLIX_ENABLE_GEMINI_OBSERVATIONS=true` after its API billing/quota is intentionally enabled.
