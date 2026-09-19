@@ -1,6 +1,8 @@
 import { createClient } from '@/lib/supabase/server'
-import { createBaselinePanel, createPostChangeRecheck, runOpenAIObservationBatch, runProviderObservationBatch } from './actions'
+import { createBaselinePanel, createPostChangeRecheck } from './actions'
 import { PendingButton } from '@/components/pending-button'
+import { ResearchJobWatcher } from '@/components/research-job-watcher'
+import { BenchmarkCollectionResumer } from '@/components/benchmark-collection-resumer'
 
 function record(value: unknown) {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
@@ -11,13 +13,14 @@ export default async function RecheckPage({ params, searchParams }: { params: Pr
   const query = await searchParams
   const supabase = await createClient()
 
-  const [{ data: benchmarks }, { data: expressions }, { data: memberships }, { data: observations }, { data: surfaces }, { data: verifiedTasks }] = await Promise.all([
+  const [{ data: benchmarks }, { data: expressions }, { data: memberships }, { data: observations }, { data: surfaces }, { data: verifiedTasks }, { data: activeCollectionJob }] = await Promise.all([
     supabase.from('benchmarks').select('id,benchmark_type,status,version,started_at,completed_at,parent_benchmark_id,collection_config,created_at').eq('project_id', id).order('created_at', { ascending: false }),
     supabase.from('prompt_expressions').select('id,buyer_intent_id,language,mode,status,is_frozen').eq('project_id', id),
     supabase.from('benchmark_prompts').select('benchmark_id,prompt_expression_id,buyer_intent_id').eq('project_id', id),
     supabase.from('observation_runs').select('id,benchmark_id,prompt_expression_id,provider,surface,model_label,repetition,language,run_status,retrieval_status,target_rank,captured_at,metadata,error_message').eq('project_id', id).order('created_at', { ascending: false }),
     supabase.from('benchmark_surfaces').select('id,benchmark_id,provider,surface,model_label,enabled,status,expected_runs,captured_runs,error_runs,metadata,started_at,completed_at').eq('project_id', id).order('created_at'),
     supabase.from('implementation_tasks').select('id,blueprint_id,route,status,verified_at').eq('project_id', id).eq('status', 'verified').order('verified_at', { ascending: false }),
+    supabase.from('research_jobs').select('id,status,stage,progress,created_at').eq('project_id', id).eq('job_type', 'observation_collection').eq('status', 'running').order('created_at', { ascending: false }).limit(1).maybeSingle(),
   ])
 
   const error = typeof query.error === 'string' ? query.error : null
@@ -38,11 +41,12 @@ export default async function RecheckPage({ params, searchParams }: { params: Pr
 
   return (
     <div className="project-page">
+      <ResearchJobWatcher active={Boolean(activeCollectionJob)} intervalMs={3500} />
       <section className="page-header compact">
         <div>
           <div className="eyebrow">DID ANYTHING CHANGE?</div>
           <h1>Recheck</h1>
-          <p>A verified implementation and a changed AI result are separate facts. The baseline freezes approved question expressions; each observation surface completes independently, and the benchmark completes only when every enabled surface is done.</p>
+          <p>A verified implementation and a changed AI result are separate facts. The baseline freezes the approved buyer questions, then Riseklix reruns that same panel automatically across the declared AI systems. Failed systems stay visible and are excluded from aggregate interpretation when usable coverage is insufficient.</p>
         </div>
       </section>
 
@@ -58,7 +62,7 @@ export default async function RecheckPage({ params, searchParams }: { params: Pr
           </div>
           <form action={createBaselinePanel}>
             <input type="hidden" name="project_id" value={id} />
-            <PendingButton pendingLabel="Freezing baseline…" disabled={!eligibleIntentCount}>Create frozen baseline</PendingButton>
+            <PendingButton pendingLabel="Freezing and starting baseline…" disabled={!eligibleIntentCount}>Create & run baseline</PendingButton>
           </form>
         </section>
       )}
@@ -73,7 +77,7 @@ export default async function RecheckPage({ params, searchParams }: { params: Pr
           <form action={createPostChangeRecheck}>
             <input type="hidden" name="project_id" value={id} />
             <input type="hidden" name="baseline_id" value={baseline.id} />
-            <PendingButton pendingLabel="Creating comparable recheck…">Create post-change recheck</PendingButton>
+            <PendingButton pendingLabel="Starting comparable recheck…">Start post-change recheck</PendingButton>
           </form>
         </section>
       )}
@@ -82,8 +86,8 @@ export default async function RecheckPage({ params, searchParams }: { params: Pr
         <section className="post-change-cta active">
           <div>
             <div className="eyebrow">POST-CHANGE RECHECK ACTIVE</div>
-            <h2>Keep the comparison panel frozen until collection finishes.</h2>
-            <p>This recheck is tied back to the baseline and the implementation snapshot that existed before collection started.</p>
+            <h2>The frozen comparison panel is being rerun automatically.</h2>
+            <p>This recheck is tied back to the baseline and the implementation snapshot that existed before collection started. You do not need to run each AI system manually.</p>
           </div>
           <span>{activeRecheck.status}</span>
         </section>
@@ -100,10 +104,25 @@ export default async function RecheckPage({ params, searchParams }: { params: Pr
             const expectedTotal = benchmarkSurfaces.reduce((sum, surface) => sum + (surface.expected_runs || 0), 0)
             const capturedTotal = benchmarkSurfaces.reduce((sum, surface) => sum + (surface.captured_runs || 0), 0)
             const completedSurfaces = benchmarkSurfaces.filter((surface) => surface.status === 'complete').length
-            const progress = expectedTotal ? Math.min(Math.round((capturedTotal / expectedTotal) * 100), 100) : 0
+            const usableSurfaces = benchmarkSurfaces.filter((surface) => {
+              const expectedRuns = Number(surface.expected_runs || 0)
+              const capturedRuns = Number(surface.captured_runs || 0)
+              return capturedRuns >= Math.max(1, Math.ceil(expectedRuns * 0.5))
+            })
+            const excludedSurfaces = benchmarkSurfaces.filter((surface) => !usableSurfaces.some((usable) => usable.provider === surface.provider))
+            const progress = benchmark.status === 'complete'
+              ? 100
+              : expectedTotal
+                ? Math.min(Math.round((capturedTotal / expectedTotal) * 100), 100)
+                : 0
 
             return (
               <article key={benchmark.id}>
+                <BenchmarkCollectionResumer
+                  projectId={id}
+                  benchmarkId={benchmark.id}
+                  active={['draft', 'running'].includes(benchmark.status)}
+                />
                 <div className="benchmark-top"><span>{benchmark.benchmark_type} v{benchmark.version}</span><strong>{benchmark.status}</strong></div>
                 <h2>{benchmark.benchmark_type === 'baseline' ? 'Frozen comparison point' : 'Comparable recheck'}</h2>
                 <div className="benchmark-facts">
@@ -117,7 +136,9 @@ export default async function RecheckPage({ params, searchParams }: { params: Pr
                   <div>
                     <div className="eyebrow">COLLECTION PROGRESS</div>
                     <strong>{capturedTotal}/{expectedTotal || '—'} observations captured</strong>
-                    <span>{completedSurfaces}/{benchmarkSurfaces.length || 0} declared surfaces complete</span>
+                    <span>{benchmark.status === 'complete'
+                      ? `${usableSurfaces.length} usable AI system${usableSurfaces.length === 1 ? '' : 's'} · ${excludedSurfaces.length} excluded`
+                      : `${completedSurfaces}/${benchmarkSurfaces.length || 0} AI systems complete`}</span>
                   </div>
                   <div className="benchmark-progress-track" aria-label={progress + '% complete'}><i style={{ width: progress + '%' }} /></div>
                 </div>
@@ -129,15 +150,6 @@ export default async function RecheckPage({ params, searchParams }: { params: Pr
                     const surfaceUnaided = surfaceCaptured.filter((run) => record(run.metadata).prompt_mode === 'unaided')
                     const surfaceRetrieved = surfaceUnaided.filter((run) => run.retrieval_status === 'retrieved')
                     const meta = record(surfaceConfig.metadata)
-                    const isOpenAI = surfaceConfig.provider === 'openai' && surfaceConfig.surface === 'openai_responses_web_search'
-                    const canRunProvider = ['google','anthropic','perplexity'].includes(surfaceConfig.provider)
-                    const buttonLabel = surfaceConfig.provider === 'google'
-                      ? (surfaceConfig.captured_runs ? 'Run next Gemini batch' : 'Start Gemini observations')
-                      : surfaceConfig.provider === 'anthropic'
-                        ? (surfaceConfig.captured_runs ? 'Run next Claude batch' : 'Start Claude observations')
-                        : surfaceConfig.provider === 'perplexity'
-                          ? (surfaceConfig.captured_runs ? 'Run next Perplexity batch' : 'Start Perplexity observations')
-                          : ''
 
                     return (
                       <section className="observation-surface" key={surfaceConfig.id}>
@@ -147,21 +159,7 @@ export default async function RecheckPage({ params, searchParams }: { params: Pr
                             <h3>{typeof meta.display_name === 'string' ? meta.display_name : `${surfaceConfig.provider} · ${surfaceConfig.surface}`}</h3>
                             <p>{typeof meta.methodology_note === 'string' ? meta.methodology_note : 'This observation surface is declared separately so results are not silently mixed across products or APIs.'}</p>
                           </div>
-                          {isOpenAI && surfaceConfig.status !== 'complete' && (
-                            <form action={runOpenAIObservationBatch}>
-                              <input type="hidden" name="project_id" value={id} />
-                              <input type="hidden" name="benchmark_id" value={benchmark.id} />
-                              <PendingButton pendingLabel="Collecting OpenAI observations…">{surfaceConfig.captured_runs ? 'Run next OpenAI batch' : 'Start OpenAI observations'}</PendingButton>
-                            </form>
-                          )}
-                          {canRunProvider && surfaceConfig.status !== 'complete' && (
-                            <form action={runProviderObservationBatch}>
-                              <input type="hidden" name="project_id" value={id} />
-                              <input type="hidden" name="benchmark_id" value={benchmark.id} />
-                              <input type="hidden" name="provider" value={surfaceConfig.provider} />
-                              <PendingButton pendingLabel="Collecting observations…">{buttonLabel}</PendingButton>
-                            </form>
-                          )}
+
                         </div>
                         <div className="observation-facts">
                           <div><small>Captured</small><strong>{surfaceConfig.captured_runs}/{surfaceConfig.expected_runs || '—'}</strong></div>
@@ -188,7 +186,11 @@ export default async function RecheckPage({ params, searchParams }: { params: Pr
                   })}
                 </div>
 
-                <p>{benchmark.completed_at ? `All enabled surfaces completed ${new Date(benchmark.completed_at).toLocaleString()}` : benchmark.started_at ? `Collection started ${new Date(benchmark.started_at).toLocaleString()}` : 'Panel is frozen and ready for its configured observation surfaces.'}</p>
+                <p>{benchmark.completed_at
+                  ? `Collection reached a terminal comparison state ${new Date(benchmark.completed_at).toLocaleString()}.`
+                  : benchmark.started_at
+                    ? `Collection started ${new Date(benchmark.started_at).toLocaleString()} and continues automatically while this page is open.`
+                    : 'Panel is frozen. Collection starts automatically and resumes without per-provider controls.'}</p>
               </article>
             )
           })}
