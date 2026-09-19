@@ -61,7 +61,7 @@ requireText(
 )
 requireText(
   typography,
-  '.landing-hero',
+  '.landing-proof span',
   'Typography contract failed: landing microcopy coverage must remain explicit.',
 )
 
