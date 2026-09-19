@@ -1,0 +1,394 @@
+/* Riseklix semantic typography scale
+   Loaded after the existing visual system so we can improve legibility without
+   reworking layout primitives or the editorial identity. */
+
+:root{
+  --type-micro:.6875rem;      /* 11px — terse labels only */
+  --type-caption:.75rem;      /* 12px — metadata / provenance */
+  --type-secondary:.8125rem;  /* 13px — helper / compact UI */
+  --type-body:.875rem;        /* 14px — normal product body */
+  --type-reading:1rem;        /* 16px — sustained reading */
+  --type-subtitle:1.125rem;   /* 18px — compact component heading */
+  --type-section:1.5rem;      /* 24px — section heading */
+}
+
+html{-webkit-text-size-adjust:100%;text-size-adjust:100%}
+
+/* Global utility hierarchy */
+.eyebrow{font-size:var(--type-micro);line-height:1.45}
+.quiet-button,.primary-link,.secondary-button,.spotlight-cta{font-size:var(--type-secondary)}
+.form-alert{font-size:var(--type-secondary)}
+.text-link,.back-link{font-size:var(--type-secondary)}
+
+/* Application shell */
+.sidebar-product,.sidebar-section-label,.sidebar-research-note{font-size:var(--type-micro)!important}
+.sidebar-workspace-copy strong,.sidebar-workspace strong{font-size:var(--type-caption)!important}
+.sidebar-workspace-copy small,.sidebar-workspace span,.sidebar-workspace-state{font-size:var(--type-micro)!important}
+.workspace-sidebar nav a{font-size:var(--type-secondary)!important}
+.sidebar-bottom small,.sidebar-bottom button{font-size:var(--type-caption)!important}
+.sidebar-user strong,.profile-trigger-copy strong{font-size:var(--type-caption)!important}
+.sidebar-user small,.profile-trigger-copy small{font-size:var(--type-micro)!important}
+.profile-menu-header strong{font-size:var(--type-secondary)!important}
+.profile-menu-header small,.profile-menu-header>span{font-size:var(--type-micro)!important}
+.profile-menu-group a,.profile-menu-group button{font-size:var(--type-caption)!important}
+html[data-sidebar-collapsed="true"] .workspace-sidebar nav a[data-tooltip]::after{font-size:var(--type-micro)}
+
+.project-identity strong{font-size:var(--type-body)}
+.project-identity small,.project-identity span{font-size:var(--type-caption)}
+.project-state{font-size:var(--type-micro)}
+.project-journey a{font-size:var(--type-caption)}
+.journey-number{font-size:var(--type-micro)}
+.project-profile-link{font-size:var(--type-caption)}
+
+/* Projects + overview */
+.project-status{font-size:var(--type-micro)}
+.project-card p{font-size:var(--type-secondary);line-height:1.55}
+.project-card footer{font-size:var(--type-caption)}
+.workspace-pulse span,.project-list-head{font-size:var(--type-micro)}
+.project-list-company small{font-size:var(--type-caption)}
+.project-list-stage strong{font-size:var(--type-secondary)}
+.project-list-stage small,.project-list-row time{font-size:var(--type-caption)}
+
+.overview-context span,.overview-context small{font-size:var(--type-caption)}
+.decision-strip span{font-size:var(--type-caption)}
+.decision-meta span{font-size:var(--type-micro)}
+.surface-summary span{font-size:var(--type-micro)}
+.surface-summary strong{font-size:var(--type-body)}
+.surface-summary small{font-size:var(--type-caption)}
+
+/* Authentication + onboarding + new analysis */
+.auth-card>p,.new-project-shell>p{font-size:var(--type-body);line-height:1.6}
+.auth-form label,.new-project-form label{font-size:var(--type-caption)}
+.auth-form input,.auth-form select,.new-project-form input,.new-project-form select{font-size:var(--type-body);min-height:44px}
+.auth-form button,.new-project-form button,.oauth-button{font-size:var(--type-secondary)}
+.auth-divider,.auth-legal,.onboarding-note span{font-size:var(--type-micro)!important}
+.auth-inline-row a,.auth-text-link,.onboarding-signout button{font-size:var(--type-caption)}
+.onboarding-note p{font-size:var(--type-secondary);line-height:1.55}
+.onboarding-field-note{font-size:var(--type-caption)}
+.form-trust-note{font-size:var(--type-caption)}
+.analysis-mode-picker legend{font-size:var(--type-micro)}
+.analysis-mode-card small{font-size:var(--type-caption)}
+.new-analysis-explainer li>span{font-size:var(--type-micro)}
+.new-analysis-explainer strong{font-size:var(--type-secondary)}
+.new-analysis-explainer p{font-size:var(--type-caption);line-height:1.55}
+
+/* Company Intelligence */
+.profile-research-strip small,.profile-status{font-size:var(--type-caption)}
+.profile-research-strip button{font-size:var(--type-secondary)}
+.profile-snapshot-grid small,.profile-fact-group>small,.profile-fact-columns small{font-size:var(--type-caption)}
+.fact-chips span{font-size:var(--type-secondary)}
+.profile-editor>summary span{font-size:var(--type-caption)}
+.profile-approval-card p{font-size:var(--type-body);line-height:1.6}
+.profile-approval-card button{font-size:var(--type-secondary)}
+.evidence-drawer>summary small{font-size:var(--type-caption)}
+.evidence-list strong,.intent-facts strong{font-size:var(--type-secondary)!important}
+.evidence-list span,.intent-facts small,.intent-detail-columns small{font-size:var(--type-caption)!important}
+.evidence-list a,.evidence-list small,.review-intro,.intent-engine-state p,.intent-details p,.manual-intent-panel>p{
+  font-size:var(--type-secondary)!important;
+  line-height:1.6
+}
+.profile-review-form label,.manual-intent-form label{font-size:var(--type-caption)!important}
+.profile-review-form input,.profile-review-form textarea,.manual-intent-form input,.manual-intent-form textarea,.manual-intent-form select{
+  font-size:var(--type-body)!important;
+  line-height:1.5
+}
+.profile-form-actions button,.approval-panel button,.intent-generate-form button{font-size:var(--type-secondary)!important}
+
+/* Buyer Situations + competitor research + buyer questions */
+.intent-summary-strip span,.intent-workbench-summary span{font-size:var(--type-micro)}
+.intent-workbench-summary strong{font-size:var(--type-secondary)}
+.intent-meta span{font-size:var(--type-micro)!important}
+.intent-list p{font-size:var(--type-body)!important;line-height:1.6}
+.intent-list footer{font-size:var(--type-caption)}
+.intent-details>summary{font-size:var(--type-secondary)!important}
+.intent-actions button,.manual-intent-actions button{font-size:var(--type-secondary)!important}
+.workflow-disclosure>summary strong{font-size:var(--type-body)}
+.workflow-disclosure>summary small{font-size:var(--type-caption)}
+.workflow-disclosure>summary>span:last-child{font-size:var(--type-micro)}
+.competitor-heading p,.prompt-heading p{font-size:var(--type-secondary)!important;line-height:1.6}
+.competitor-heading button,.prompt-heading button{font-size:var(--type-secondary)!important}
+.competitor-badges span,.prompt-card-meta span{font-size:var(--type-micro)!important}
+.competitor-card>small{font-size:var(--type-caption)}
+.competitor-card>p{font-size:var(--type-secondary)!important;line-height:1.6!important}
+.competitor-fit-grid small,.competitor-evidence>small{font-size:var(--type-micro)}
+.competitor-fit-grid pre{font-size:var(--type-caption);line-height:1.55}
+.competitor-evidence a strong{font-size:var(--type-caption)}
+.competitor-evidence a span{font-size:var(--type-micro)}
+.prompt-card p{font-size:var(--type-body)!important;line-height:1.6!important}
+.prompt-actions button{font-size:var(--type-caption)}
+
+/* Test / benchmark / observations */
+.baseline-builder p,.test-readiness p,.test-baseline-head p{font-size:var(--type-body);line-height:1.6}
+.baseline-builder button,.test-readiness button,.test-master-actions button{font-size:var(--type-secondary)}
+.benchmark-top span,.benchmark-top strong{font-size:var(--type-micro)!important}
+.benchmark-list>article>p{font-size:var(--type-secondary);line-height:1.6}
+.benchmark-facts small,.observation-facts small{font-size:var(--type-micro)}
+.benchmark-facts strong,.observation-facts strong{font-size:var(--type-body)}
+.observation-surface-head p{font-size:var(--type-secondary);line-height:1.6}
+.observation-surface-head button{font-size:var(--type-secondary)}
+.recent-observations span,.recent-observations small{font-size:var(--type-micro)}
+.recent-observations strong{font-size:var(--type-caption)}
+.prompt-surface-note{font-size:var(--type-caption)}
+.question-surface-chips span{font-size:var(--type-micro)}
+.benchmark-progress strong{font-size:var(--type-body)}
+.benchmark-progress span{font-size:var(--type-caption)}
+
+/* WHY — preserve the strong reading hierarchy, lift only support text */
+.why-engine-state p{font-size:var(--type-body);line-height:1.6}
+.why-engine-state button{font-size:var(--type-secondary)}
+.why-summary-strip span{font-size:var(--type-micro)}
+.why-summary-strip small{font-size:var(--type-caption)}
+.finding-badges span,.finding-card>header>strong{font-size:var(--type-micro)}
+.finding-intent small{font-size:var(--type-caption)}
+.finding-evidence summary{font-size:var(--type-secondary)}
+.finding-evidence a span{font-size:var(--type-micro)}
+.finding-evidence a strong{font-size:var(--type-caption)}
+.finding-actions button{font-size:var(--type-secondary)}
+.blueprint-ready{font-size:var(--type-caption)}
+
+/* Executive Report — readable as a document, not microprint */
+.report-cover-meta span{font-size:var(--type-micro)}
+.report-anchor-nav a{font-size:var(--type-micro);padding:7px 9px}
+.report-metric-strip span,.report-metric-strip small{font-size:var(--type-micro);line-height:1.5}
+.report-section>header p{font-size:var(--type-body);line-height:1.65}
+.report-company-card>span,.report-decision-card>span{font-size:var(--type-micro)}
+.report-company-card small{font-size:var(--type-micro)}
+.report-decision-card p{font-size:var(--type-body);line-height:1.65}
+
+.report-finding-ledger article{grid-template-columns:190px minmax(220px,.7fr) minmax(0,1fr);gap:22px;padding:18px 2px}
+.report-finding-ledger article>div small{font-size:var(--type-micro)}
+.report-finding-ledger h3{font-size:var(--type-subtitle)}
+.report-finding-ledger p{font-size:var(--type-secondary);line-height:1.6}
+.report-decision-pill{font-size:var(--type-micro);padding:4px 7px}
+
+.report-table-head,.report-intent-table article{grid-template-columns:minmax(0,1fr) 120px 120px 100px;gap:18px}
+.report-table-head{font-size:var(--type-micro)}
+.report-intent-table article>div:first-child small{font-size:var(--type-micro)}
+.report-intent-table article>div:first-child strong{font-size:var(--type-body)}
+.report-intent-table article>div:first-child p{font-size:var(--type-secondary);line-height:1.55}
+.report-intent-table article>div:not(:first-child) small{font-size:var(--type-micro)}
+.report-priority{font-size:var(--type-micro);padding:4px 7px}
+
+.report-engine-grid article{min-height:168px}
+.report-engine-grid article>span{font-size:var(--type-caption)}
+.report-engine-grid p{font-size:var(--type-micro)}
+.report-engine-grid small{font-size:var(--type-caption);line-height:1.5}
+.report-capture-note strong{font-size:var(--type-caption)}
+.report-capture-note span{font-size:var(--type-micro)}
+
+.report-competitor-grid article>span{font-size:var(--type-micro)}
+.report-competitor-grid article>strong{font-size:var(--type-subtitle)}
+.report-detail-drawer summary{font-size:var(--type-secondary)}
+.report-detail-drawer strong{font-size:var(--type-secondary)}
+.report-detail-drawer span{font-size:var(--type-micro)}
+.report-detail-drawer p{font-size:var(--type-caption);line-height:1.6}
+
+.report-why-stack>article>header span,.report-why-stack>article>header small{font-size:var(--type-micro)}
+.report-why-stack>article>header strong{font-size:var(--type-subtitle)}
+.report-why-stack section small{font-size:var(--type-micro)}
+.report-why-stack section p{font-size:var(--type-secondary);line-height:1.65}
+
+.report-priority-summary span{font-size:var(--type-micro)}
+.report-fix-options form>span{font-size:var(--type-micro)}
+.report-fix-options p{font-size:var(--type-secondary);line-height:1.6}
+.report-fix-options button{font-size:var(--type-secondary)}
+.report-fix-ledger article>div strong{font-size:var(--type-secondary)}
+.report-fix-ledger article>div p{font-size:var(--type-caption);line-height:1.6}
+.report-fix-ledger article>small{font-size:var(--type-micro)}
+.report-open-fixes{font-size:var(--type-secondary)}
+.report-no-fix p{font-size:var(--type-secondary);line-height:1.6}
+.report-method-grid strong{font-size:var(--type-secondary)}
+.report-method-grid p{font-size:var(--type-caption);line-height:1.6}
+.report-method-footer a{font-size:var(--type-micro)}
+
+/* Blueprints / execution — make work orders easy to execute */
+.blueprint-queue-list span,.blueprint-badges span,.blueprint-card>header>small{font-size:var(--type-micro)}
+.blueprint-queue-list p{font-size:var(--type-secondary);line-height:1.6}
+.blueprint-queue-list button{font-size:var(--type-secondary)}
+.blueprint-objective{font-size:var(--type-body);line-height:1.65}
+.blueprint-core small{font-size:var(--type-micro)}
+.blueprint-core strong{font-size:var(--type-secondary);line-height:1.5}
+.implementation-brief small,.opening-answer small{font-size:var(--type-micro)}
+.implementation-brief p{font-size:var(--type-body);line-height:1.65}
+.blueprint-details>summary,.blueprint-evidence>summary{font-size:var(--type-secondary)}
+.blueprint-spec-grid>section>small{font-size:var(--type-micro)}
+.blueprint-spec-grid pre{font-size:var(--type-caption);line-height:1.55}
+.spec-item strong{font-size:var(--type-secondary)}
+.spec-item p,.evidence-needed-list p,.blueprint-spec-grid>section>p{font-size:var(--type-secondary);line-height:1.6}
+.blueprint-evidence a span{font-size:var(--type-micro)}
+.blueprint-evidence a strong{font-size:var(--type-caption)}
+.blueprint-approval strong{font-size:var(--type-body)}
+.blueprint-approval p{font-size:var(--type-secondary);line-height:1.55}
+.blueprint-approval button{font-size:var(--type-secondary)}
+.execution-route-grid strong,.execution-method-grid strong,.ai-workspace-grid strong{font-size:var(--type-subtitle)}
+.execution-route-grid p,.execution-method-grid p,.ai-workspace-grid p{font-size:var(--type-secondary);line-height:1.6}
+.execution-route-grid button,.execution-method-grid button,.ai-workspace-grid button,.delivery-status-actions button{font-size:var(--type-secondary)}
+.delivery-workflow-head p{font-size:var(--type-secondary);line-height:1.6}
+.delivery-workflow-head>span{font-size:var(--type-micro)}
+.delivery-inputs label{font-size:var(--type-caption)}
+.delivery-inputs label small{font-size:var(--type-micro)}
+.delivery-inputs input,.delivery-inputs textarea{font-size:var(--type-body);line-height:1.5}
+
+/* Recheck */
+.post-change-cta p{font-size:var(--type-body);line-height:1.6}
+.post-change-cta button{font-size:var(--type-secondary)}
+.post-change-cta.active>span{font-size:var(--type-micro)}
+
+/* Processing — waiting should feel calm, not like debug telemetry */
+.processing-hero p{font-size:var(--type-body);line-height:1.65}
+.autopilot-notify{font-size:var(--type-secondary)}
+.autopilot-notify>div:first-child strong{font-size:var(--type-secondary)}
+.autopilot-notify>div:first-child span{font-size:var(--type-caption);line-height:1.5}
+.autopilot-notify button{font-size:var(--type-secondary)}
+.processing-current span,.processing-stage-index,.processing-stage-list article>small,.processing-live-evidence span{font-size:var(--type-micro)}
+.processing-current p,.processing-paused p{font-size:var(--type-secondary);line-height:1.6}
+.processing-paused a{font-size:var(--type-caption)}
+.processing-stage-list article>div strong{font-size:var(--type-body)}
+.processing-stage-list article>div p{font-size:var(--type-secondary);line-height:1.55}
+.processing-live-evidence small{font-size:var(--type-caption);line-height:1.55}
+.processing-exit-note p{font-size:var(--type-body);line-height:1.6}
+.processing-exit-note>a{font-size:var(--type-secondary)}
+
+/* Settings — ordinary product UI, not microprint */
+.settings-role-badge,.settings-local-nav>span,.settings-section>header>div:first-child>span,.settings-section-meta span{font-size:var(--type-micro)}
+.settings-local-nav a{font-size:var(--type-secondary)}
+.settings-section>header p{font-size:var(--type-secondary);line-height:1.6}
+.settings-field-row>div:first-child label,.settings-field-row>div:first-child>label{font-size:var(--type-secondary)}
+.settings-field-row>div:first-child p,.settings-action-row>div p{font-size:var(--type-caption);line-height:1.55}
+.settings-field-row input,.settings-field-row select{font-size:var(--type-body);min-height:42px}
+.settings-value-stack>strong{font-size:var(--type-secondary)}
+.settings-chip,.settings-status-lock{font-size:var(--type-micro)}
+.settings-form>footer button{font-size:var(--type-secondary);min-height:38px}
+.settings-footnote{font-size:var(--type-caption)}
+.settings-choice-row legend strong,.settings-choice-row label strong,.settings-action-row>div>strong{font-size:var(--type-secondary)}
+.settings-choice-row legend span,.settings-choice-row label small{font-size:var(--type-caption);line-height:1.5}
+.settings-secondary-action,.settings-danger-action{font-size:var(--type-secondary)}
+.settings-link-grid span,.settings-danger-zone span{font-size:var(--type-secondary)}
+.settings-link-grid small,.settings-danger-zone p{font-size:var(--type-caption);line-height:1.55}
+.settings-link-grid b{font-size:var(--type-body)}
+.settings-danger-zone a{font-size:var(--type-caption)}
+.settings-saved-indicator,.settings-unsaved-indicator,.settings-clean-indicator{font-size:var(--type-micro)}
+.settings-notification-control strong{font-size:var(--type-secondary)}
+.settings-notification-control p{font-size:var(--type-caption);line-height:1.55}
+.settings-notification-control small{font-size:var(--type-micro);line-height:1.5}
+.settings-toggle{font-size:var(--type-micro)}
+
+/* Help, Method, Legal — reading surfaces */
+.help-guide-card>span{font-size:var(--type-micro)}
+.help-guide-card p{font-size:var(--type-body);line-height:1.65}
+.help-guide-card a{font-size:var(--type-secondary)}
+.help-troubleshooting dt{font-size:var(--type-body)}
+.help-troubleshooting dd{font-size:var(--type-secondary);line-height:1.65}
+.support-card p{font-size:var(--type-body);line-height:1.6}
+.help-footer{font-size:var(--type-caption)}
+
+.method-status-grid span,.method-status-grid small{font-size:var(--type-micro)}
+.method-status-grid strong{font-size:var(--type-body)}
+.method-chapter-number{font-size:var(--type-caption)}
+.method-facts span{font-size:var(--type-micro)}
+.method-facts strong{font-size:var(--type-secondary)}
+.method-rule-grid p{font-size:var(--type-body);line-height:1.65}
+.method-surface-list article>div:first-child span,.method-surface-list article>div:last-child strong{font-size:var(--type-micro)}
+.method-surface-list article>div:first-child strong{font-size:var(--type-body)}
+.method-surface-list article>div:first-child small,.method-surface-list article>div:last-child small{font-size:var(--type-caption);line-height:1.5}
+.method-muted,.method-warning p{font-size:var(--type-body);line-height:1.65}
+.lineage-path span,.method-mini-stats span{font-size:var(--type-micro)}
+
+.legal-document p,.legal-document li{font-size:var(--type-body);line-height:1.75}
+.legal-document footer{font-size:var(--type-caption)}
+.legal-summary span{font-size:var(--type-micro)}
+.legal-summary p{font-size:var(--type-secondary)!important;line-height:1.6!important}
+.legal-toc>strong{font-size:var(--type-micro)}
+.legal-toc a{font-size:var(--type-secondary)}
+.legal-contact-card span{font-size:var(--type-micro)}
+.legal-contact-card a{font-size:var(--type-secondary)}
+
+/* Landing — preserve the existing editorial scale, only lift microcopy */
+.landing-proof span,.glimpse-rail span,.glimpse-evidence small,.glimpse-evidence span,.landing-workflow-grid article>span{font-size:var(--type-micro)}
+.glimpse-card>p,.landing-workflow-grid p{font-size:var(--type-secondary);line-height:1.6}
+.landing-nav-actions>span{font-size:var(--type-caption)}
+
+
+/* Legacy + specialist surfaces still present in the current app */
+.project-topbar small,.project-topbar span{font-size:var(--type-caption)}
+.project-nav a{font-size:var(--type-caption)}
+.overview-metrics span,.profile-summary>span{font-size:var(--type-micro)}
+.profile-grid pre{font-size:var(--type-caption);line-height:1.55}
+
+.finding-card small,.hypothesis small,.counter-evidence small{font-size:var(--type-micro)}
+.fix-grid article>span,.fix-grid dt{font-size:var(--type-micro)}
+.fix-grid dd{font-size:var(--type-secondary)}
+.timeline article{font-size:var(--type-secondary)}
+.timeline article strong{font-size:var(--type-micro)}
+.timeline article small{font-size:var(--type-caption)}
+
+.sidebar-avatar{font-size:var(--type-micro)}
+.settings-saved-indicator i{font-size:var(--type-micro)}
+.analysis-delete-trigger{font-size:var(--type-caption)}
+.analysis-delete-form>p{font-size:var(--type-secondary);line-height:1.6}
+.analysis-delete-form label{font-size:var(--type-caption)}
+.analysis-delete-form input{font-size:var(--type-body)}
+.analysis-delete-cancel,.analysis-delete-confirm{font-size:var(--type-secondary)}
+
+.spec-number{font-size:var(--type-micro)}
+.spec-checklist li,.spec-steps li,.spec-empty{font-size:var(--type-secondary)!important;line-height:1.55}
+.internal-link-list span,.execution-step-head>span{font-size:var(--type-micro)}
+.internal-link-list strong{font-size:var(--type-secondary)}
+.execution-step-head p{font-size:var(--type-secondary);line-height:1.55}
+.execution-ready-note strong{font-size:var(--type-body)}
+.execution-ready-note p{font-size:var(--type-secondary);line-height:1.6}
+.execution-ready-note a{font-size:var(--type-secondary)}
+
+.job-line span,.profile-state{font-size:var(--type-micro)!important}
+.approval-panel p{font-size:var(--type-secondary);line-height:1.6}
+.intent-engine-state>span{font-size:var(--type-micro)}
+.intent-details summary,.manual-intent-panel summary{font-size:var(--type-secondary)}
+.intent-detail-columns pre{font-size:var(--type-caption);line-height:1.55}
+.manual-intent-form small{font-size:var(--type-micro)}
+
+.sidebar-principle span{font-size:var(--type-micro)}
+.competitor-job-state span,.competitor-job-state small{font-size:var(--type-micro)}
+.competitor-job-state strong{font-size:var(--type-caption)}
+.workspace-sidebar .sidebar-product{font-size:var(--type-micro)!important}
+.crawl-access-warning>span,.intent-not-prompt,.intent-job>span,.intent-provenance-note>small{font-size:var(--type-micro)}
+.plain-research-list em{font-size:var(--type-caption)}
+.prompt-human-label{font-size:var(--type-micro)}
+.workspace-sidebar .sidebar-logo-link strong{font-size:var(--type-caption)}
+.approved-question-panel-head>span,.approved-question-groups header small,.approved-question-groups header>span,.approved-question-list span{font-size:var(--type-micro)}
+.autopilot-banner>span,.autopilot-progress-meta span{font-size:var(--type-micro)}
+
+/* Override earlier !important component rules at the new semantic size. */
+.baseline-builder button,.observation-surface button{font-size:var(--type-secondary)!important}
+
+/* Responsive safeguards: larger text should reflow, never force horizontal compression. */
+@media(max-width:900px){
+  .report-finding-ledger article{grid-template-columns:1fr}
+  .report-table-head,.report-intent-table article{grid-template-columns:minmax(0,1fr) 100px 100px 86px}
+}
+
+@media(max-width:720px){
+  .project-journey a{font-size:var(--type-caption)}
+  .report-intent-table article{grid-template-columns:minmax(0,1fr) 82px 82px}
+  .report-intent-table article>div:first-child strong{font-size:var(--type-secondary)}
+  .report-engine-grid article{min-height:auto}
+  .blueprint-card>h2{font-size:1.75rem}
+}
+
+@media(max-width:620px){
+  /* Prevent iOS focus zoom and make touch-form reading comfortable. */
+  .auth-form input,.auth-form select,.new-project-form input,.new-project-form select,
+  .profile-review-form input,.profile-review-form textarea,
+  .manual-intent-form input,.manual-intent-form textarea,.manual-intent-form select,
+  .settings-field-row input,.settings-field-row select,
+  .delivery-inputs input,.delivery-inputs textarea,
+  .analysis-delete-form input{
+    font-size:1rem!important;
+  }
+
+  .settings-field-row,.settings-action-row,.settings-choice-row{grid-template-columns:1fr;gap:10px}
+  .report-metric-strip,.report-engine-grid,.report-priority-summary,.report-method-grid{grid-template-columns:1fr}
+  .report-intent-table article{grid-template-columns:1fr 1fr;gap:12px}
+  .report-intent-table article>div:first-child{grid-column:1 / -1}
+  .report-intent-table article>.report-priority{grid-column:1 / -1}
+  .report-why-stack>article>header strong{font-size:var(--type-body)}
+}
