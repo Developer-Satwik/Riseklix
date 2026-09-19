@@ -230,18 +230,27 @@ const handler = {
     run = claimed.data
 
     const updateRun = async (values: Record<string, unknown>) => {
-      const { data } = await db
+      const { data, error } = await db
         .from('autopilot_runs')
         .update({ last_heartbeat_at: new Date().toISOString(), ...values })
         .eq('id', run.id)
         .select('*')
         .single()
-      if (data) run = data
+
+      if (error) {
+        throw new Error('Autopilot state update failed: ' + error.message)
+      }
+
+      run = data
       return run
     }
 
     const release = async (stage: string, progress: number, extra: Record<string, unknown> = {}) => {
-      await updateRun({ stage, progress, lease_until: null, ...extra })
+      const metadata = Object.keys(extra).length
+        ? { ...record(run.metadata), ...extra }
+        : record(run.metadata)
+
+      await updateRun({ stage, progress, lease_until: null, metadata })
       return json({ pending: progress < 100, stage, progress, ...extra })
     }
 
