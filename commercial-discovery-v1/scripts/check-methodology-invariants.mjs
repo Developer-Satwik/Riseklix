@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs'
+import ts from 'typescript'
 
 function read(path) {
   return readFileSync(new URL('../' + path, import.meta.url), 'utf8')
@@ -148,6 +149,59 @@ requireText(
   "informational_or_criteria_only",
   'Prompt eligibility must distinguish criteria/advice questions from retrieval questions.',
 )
+
+const transpiledPromptEligibility = ts.transpileModule(appPromptEligibility, {
+  compilerOptions: {
+    module: ts.ModuleKind.CommonJS,
+    target: ts.ScriptTarget.ES2020,
+  },
+}).outputText
+const promptEligibilityModule = { exports: {} }
+new Function('module', 'exports', transpiledPromptEligibility)(
+  promptEligibilityModule,
+  promptEligibilityModule.exports,
+)
+const { isUnaidedRetrievalEligible } = promptEligibilityModule.exports
+
+const promptEligibilityCases = [
+  {
+    prompt: "What should I verify about a vendor's SMS availability, setup, limits and reply handling before adding it to an ecommerce program?",
+    expected: false,
+    label: 'criteria-only vendor verification must not enter retrieval denominators',
+  },
+  {
+    prompt: 'How should I compare shared inbox vendors before choosing one?',
+    expected: false,
+    label: 'evaluation-criteria advice must not count as brand discovery',
+  },
+  {
+    prompt: 'Which ecommerce messaging platforms can run automated journeys with production-ready SMS while keeping replies connected across WhatsApp, Instagram and Messenger?',
+    expected: true,
+    label: 'provider shortlist question must remain retrieval eligible',
+  },
+  {
+    prompt: 'What software should a US ecommerce brand use for automated reorder reminders?',
+    expected: true,
+    label: 'natural what-software selection question must remain eligible',
+  },
+  {
+    prompt: 'Kaunse shared inbox tools WhatsApp, Instagram aur Messenger ko ek jagah manage karte hain?',
+    expected: true,
+    label: 'Hinglish provider-discovery question must remain eligible',
+  },
+  {
+    prompt: 'कौन से प्लेटफ़ॉर्म WhatsApp और Instagram संदेशों को एक shared inbox में संभाल सकते हैं?',
+    expected: true,
+    label: 'Hindi provider-discovery question must remain eligible',
+  },
+]
+
+for (const testCase of promptEligibilityCases) {
+  const actual = isUnaidedRetrievalEligible(testCase.prompt)
+  if (actual !== testCase.expected) {
+    throw new Error('Methodology invariant failed: ' + testCase.label)
+  }
+}
 
 const trustedWorkerFunctions = [
   'auto-analysis-runner',
