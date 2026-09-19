@@ -74,7 +74,7 @@ The product should show the buyer question once, then the observed answer/result
 
 High-volume observation should use economical models and bounded external retrieval. Claude observations default to Haiku 4.5 and receive compact Firecrawl search-result evidence instead of Anthropic's native web-search tool. This reduces token amplification and native search charges while keeping the observation methodology explicit. Gemini is included whenever `GEMINI_API_KEY` is configured.
 
-Cross-model reporting requires at least two usable AI providers. A provider is usable when at least half of its expected captures succeed. Failed or unavailable providers remain visible as excluded evidence, are never counted as "not retrieved," and do not block the report once the minimum two-provider threshold is met.
+Cross-model reporting requires at least three usable AI providers when three or more surfaces are configured. A provider is usable when at least half of its expected captures succeed. Failed or unavailable providers remain visible as excluded evidence, are never counted as "not retrieved," and do not block the report once the three-provider quorum is met. With fewer than three configured surfaces, all configured surfaces must be usable.
 
 
 ## Cost-control architecture
