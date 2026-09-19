@@ -105,7 +105,7 @@ async function ensureBaseline(projectId: string) {
       repetitions_per_expression: repetitions,
       session_policy: 'fresh_session_each_run',
       geography: project.market,
-      surface_policy: 'benchmark_complete_only_when_all_enabled_surfaces_complete',
+      surface_policy: 'minimum_two_usable_providers; failed providers excluded from aggregate interpretation',
       notes: 'Baseline created automatically when the user runs approved buyer questions.',
     },
   }).select('id').single()
@@ -145,6 +145,24 @@ async function ensureBaseline(projectId: string) {
       metadata: {
         display_name: 'OpenAI · free-plan proxy',
         methodology_note: 'API observation proxy using a low-cost OpenAI model with web search. It is not represented as the ChatGPT consumer UI.',
+        consumer_equivalence: 'approximate',
+      },
+    },
+    {
+      workspace_id: project.workspace_id,
+      project_id: project.id,
+      benchmark_id: benchmark.id,
+      provider: 'google',
+      surface: 'gemini_generate_content_google_search',
+      model_label: null,
+      enabled: true,
+      status: 'draft',
+      expected_runs: expectedRuns,
+      captured_runs: 0,
+      error_runs: 0,
+      metadata: {
+        display_name: 'Gemini · Flash API proxy',
+        methodology_note: 'Gemini API with Google Search grounding. This is an API observation proxy, not the Gemini consumer application.',
         consumer_equivalence: 'approximate',
       },
     },
