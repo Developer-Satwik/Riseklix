@@ -684,14 +684,26 @@ const handler = {
     }
 
     if (baseline.status === 'failed') {
-      const capturedCount = await ctx.supabase
-        .from('observation_runs')
-        .select('id', { count: 'exact', head: true })
+      const { data: failedSurfaces } = await ctx.supabase
+        .from('benchmark_surfaces')
+        .select('provider,status,expected_runs,captured_runs')
         .eq('benchmark_id', baseline.id)
-        .eq('run_status', 'captured')
+        .eq('enabled', true)
 
-      if ((capturedCount.count ?? 0) === 0) {
-        return await pause('multi_model_testing_failed', 88, 'All configured observation surfaces failed before a usable answer was captured. Autopilot stopped instead of retrying and spending more credits.')
+      const declaredProviders = failedSurfaces ?? []
+      const minimumUsableProviders = declaredProviders.length >= 2 ? 2 : declaredProviders.length
+      const usableProviders = declaredProviders.filter((surface) => {
+        const expectedRuns = Number(surface.expected_runs || 0)
+        const capturedRuns = Number(surface.captured_runs || 0)
+        return capturedRuns >= Math.max(1, Math.ceil(expectedRuns * 0.5))
+      })
+
+      if (usableProviders.length < minimumUsableProviders) {
+        return await pause(
+          'multi_model_testing_failed',
+          88,
+          `Only ${usableProviders.length} of ${declaredProviders.length} configured AI systems produced enough usable evidence. Riseklix requires at least ${minimumUsableProviders} usable AI system${minimumUsableProviders === 1 ? '' : 's'} before generating an automated cross-model report.`,
+        )
       }
     }
 
