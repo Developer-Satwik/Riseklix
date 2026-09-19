@@ -30,5 +30,6 @@ jobs:
       - run: npm ci
       - run: npm run security:audit
       - run: npm run typecheck
+      - run: npm run test:invariants
       - run: npm run lint
       - run: npm run build
