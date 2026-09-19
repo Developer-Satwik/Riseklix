@@ -1,6 +1,7 @@
 import { withSupabase } from 'npm:@supabase/server'
 import OpenAI from 'npm:openai'
 import { firecrawlSearch, type FirecrawlDocument } from '../_shared/firecrawl.ts'
+import { openAIPromptCacheKey, recordOpenAIUsage } from '../_shared/openai-usage.ts'
 
 declare const EdgeRuntime: { waitUntil(promise: Promise<unknown>): void }
 
@@ -258,8 +259,9 @@ const handler = {
       .eq('is_current', true)
       .single()
 
-    const model = Deno.env.get('RISEKLIX_COMPETITOR_MODEL') || 'gpt-5.6-sol'
-    const idempotencyKey = `competitor-discovery:${intent.id}:v${intent.version}:${model}`
+    const model = Deno.env.get('RISEKLIX_COMPETITOR_MODEL') || 'gpt-5.6-terra'
+    const escalationModel = Deno.env.get('RISEKLIX_COMPETITOR_ESCALATION_MODEL') || 'gpt-5.6-sol'
+    const idempotencyKey = `competitor-discovery:${intent.id}:v${intent.version}:${model}:escalate-${escalationModel}`
 
     if (!body.regenerate) {
       const existing = await ctx.supabase
@@ -407,9 +409,12 @@ RULES
 8. Return a small, defensible set. It is acceptable to return only a few companies in a narrow market.
 9. Every rationale must explain fit relative to the buyer intent, not generic company prestige.`
 
-      const response = await openai.responses.create({
+      let resolvedModel = model
+      let response = await openai.responses.create({
         model,
         reasoning: { effort: 'medium' },
+        prompt_cache_key: openAIPromptCacheKey(project.id, 'competitor'),
+        prompt_cache_options: { mode: 'implicit', ttl: '30m' },
         ...(firecrawlKey
           ? {}
           : {
@@ -432,10 +437,72 @@ RULES
         },
       })
 
-      const raw = outputText(response)
+      await recordOpenAIUsage(ctx.supabase, response, {
+        workspaceId: project.workspace_id,
+        projectId: project.id,
+        researchJobId: job.id,
+        stage: 'competitor_discovery_primary',
+        model,
+        metadata: { intent_id: intent.id, retrieval_provider: firecrawlSources.length ? 'firecrawl' : 'openai_web_search_fallback' },
+      })
+
+      let raw = outputText(response)
       if (!raw) throw new Error('Competitor provider returned no structured output')
 
-      const parsed = JSON.parse(raw) as { summary: string; candidates: Candidate[] }
+      let parsed = JSON.parse(raw) as { summary: string; candidates: Candidate[] }
+      const targetDomainForEscalation = normalizeDomain(project.domain)
+      const retrievedDomains = new Set(
+        retrievalPackets
+          .map((packet) => normalizeDomain(packet.url))
+          .filter((domain) => domain && domain !== targetDomainForEscalation)
+      )
+      const primaryHasDefensibleShape = parsed.candidates.some((candidate) => candidate.hard_constraints_satisfied && candidate.evidence.length > 0)
+      const shouldEscalate = escalationModel !== model && !primaryHasDefensibleShape && retrievedDomains.size >= 4
+
+      if (shouldEscalate) {
+        resolvedModel = escalationModel
+        response = await openai.responses.create({
+          model: escalationModel,
+          reasoning: { effort: 'medium' },
+          prompt_cache_key: openAIPromptCacheKey(project.id, 'competitor-escalation'),
+          prompt_cache_options: { mode: 'implicit', ttl: '30m' },
+          ...(firecrawlKey
+            ? {}
+            : {
+                tools: [{ type: 'web_search_preview' as const, search_context_size: 'medium' as const }],
+                tool_choice: 'required' as const,
+                include: ['web_search_call.action.sources'],
+              }),
+          instructions: (firecrawlKey
+            ? instructions + '\n10. Firecrawl already performed web retrieval. Do not browse again; classify only from the supplied packets.'
+            : instructions + '\n10. FIRECRAWL_API_KEY is not configured, so use web search as the temporary retrieval fallback.')
+            + '\n11. A cheaper first-pass classifier found no defensible candidate despite a broad retrieval set. Re-evaluate conservatively; zero candidates is still valid if the evidence does not satisfy the hard constraints.',
+          input: 'Target + approved intent:\n' + JSON.stringify(input)
+            + '\n\nRetrieved web evidence:\n' + JSON.stringify(retrievalPackets),
+          text: {
+            format: {
+              type: 'json_schema',
+              name: 'riseklix_intent_competitors',
+              strict: true,
+              schema: RESPONSE_SCHEMA,
+            },
+          },
+        })
+
+        await recordOpenAIUsage(ctx.supabase, response, {
+          workspaceId: project.workspace_id,
+          projectId: project.id,
+          researchJobId: job.id,
+          stage: 'competitor_discovery_escalation',
+          model: escalationModel,
+          metadata: { intent_id: intent.id, reason: 'broad_retrieval_no_defensible_primary_candidate' },
+        })
+
+        raw = outputText(response)
+        if (!raw) throw new Error('Competitor escalation model returned no structured output')
+        parsed = JSON.parse(raw) as { summary: string; candidates: Candidate[] }
+      }
+
       const searchSources = firecrawlSources.length
         ? firecrawlSources.map((source) => ({ url: source.url, title: source.title }))
         : collectSearchSources(response)
@@ -483,7 +550,7 @@ RULES
           acquisition_method: firecrawlSources.length ? 'firecrawl_search' : 'openai_web_search_fallback',
           retrieval_provider: firecrawlSources.length ? 'firecrawl' : 'openai',
           text_sample: firecrawlSources.find((source) => normalizeUrl(source.url) === normalizeUrl(item.url))?.markdown.slice(0, 12_000) || '',
-          discovered_by_model: model,
+          discovered_by_model: resolvedModel,
         },
       })))
 
@@ -570,7 +637,9 @@ RULES
         progress: 100,
         stage: 'competitors_ready',
         output: {
-          model,
+          model: resolvedModel,
+          primary_model: model,
+          escalation_model: resolvedModel === model ? null : resolvedModel,
           intent_id: intent.id,
           intent_key: intent.intent_key,
           summary: parsed.summary,
@@ -590,7 +659,7 @@ RULES
         event_type: 'intent_competitors_discovered',
         entity_type: 'buyer_intent',
         entity_id: intent.id,
-        payload: { research_job_id: job.id, model, generated: inserted.length, coverage: inserted.length ? 'evidence_backed_candidates' : 'no_defensible_candidates_found' },
+        payload: { research_job_id: job.id, model: resolvedModel, primary_model: model, escalated: resolvedModel !== model, generated: inserted.length, coverage: inserted.length ? 'evidence_backed_candidates' : 'no_defensible_candidates_found' },
       })
 
       await continueAutopilot(req, project.id)
