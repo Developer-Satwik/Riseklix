@@ -410,7 +410,7 @@ const handler = {
 
       const refreshed = await db
         .from('buyer_intents')
-        .select('id,status,intent_key,priority,created_at')
+        .select('id,status,intent_key,priority,provenance,title,buyer,job_to_be_done,purchase_stage,commercial_model,required_capabilities,created_at')
         .eq('project_id', project.id)
         .order('created_at')
       intents = refreshed.data ?? intents
