@@ -93,7 +93,7 @@ export async function createBaselinePanel(formData: FormData) {
       repetitions_per_expression: repetitions,
       session_policy: 'fresh_session_each_run',
       geography: project.market,
-      surface_policy: 'minimum_two_usable_providers; failed providers excluded from aggregate interpretation',
+      surface_policy: 'minimum_three_usable_providers; failed providers excluded from aggregate interpretation',
       notes: 'Baseline panel created from approved unaided + aided expressions. Each observation surface is tracked independently.',
     },
   }).select('id').single()
