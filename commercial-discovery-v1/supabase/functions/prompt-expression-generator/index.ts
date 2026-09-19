@@ -126,15 +126,6 @@ const handler = {
     if (projectError || intentError || !project || !intent || !profile) return json({ error: 'Project, intent or company profile not found' }, 404)
     if (intent.status !== 'approved') return json({ error: 'intent_not_approved', message: 'Approve the Buyer Intent before generating prompt expressions.' }, 409)
 
-    const { count: competitorCount } = await ctx.supabase
-      .from('competitor_candidates')
-      .select('id', { count: 'exact', head: true })
-      .eq('buyer_intent_id', intent.id)
-      .eq('is_current', true)
-      .eq('status', 'verified')
-
-    if (!competitorCount) return json({ error: 'competitor_set_required', message: 'Discover and verify the intent-specific competitor universe before prompt generation.' }, 409)
-
     const enabled = Array.isArray(project.enabled_languages) ? project.enabled_languages.filter((item): item is string => typeof item === 'string' && item.trim().length > 0) : []
     const languages = Array.from(new Set(enabled.length ? enabled : [project.primary_language || 'English'])).slice(0, 4)
     const model = Deno.env.get('RISEKLIX_PROMPT_MODEL') || 'gpt-5.6-luna'
