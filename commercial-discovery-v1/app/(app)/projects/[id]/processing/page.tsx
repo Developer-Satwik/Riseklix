@@ -88,6 +88,7 @@ export default async function ProcessingPage({
         projectName={profile?.company_name || project.name}
         complete={false}
         paused={paused}
+        activeJobCount={activeJobs.length}
       />
 
       {pageError && <div className="form-alert error" role="alert">{pageError}</div>}
