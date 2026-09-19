@@ -1,6 +1,8 @@
 import { withSupabase } from 'npm:@supabase/server'
 import OpenAI from 'npm:openai'
 
+declare const EdgeRuntime: { waitUntil(promise: Promise<unknown>): void }
+
 type RequestBody = {
   project_id?: string
   finding_id?: string
@@ -307,8 +309,9 @@ const handler = {
       return json({ error: jobError?.message ?? 'Could not start Blueprint generation' }, 400)
     }
 
-    try {
-      await ctx.supabase.from('research_jobs').update({ progress: 35, stage: 'generating_implementation_blueprint' }).eq('id', job.id)
+    const generationTask = (async () => {
+      try {
+        await ctx.supabase.from('research_jobs').update({ progress: 35, stage: 'generating_implementation_blueprint' }).eq('id', job.id)
       const openai = new OpenAI({ apiKey })
       const response = await openai.responses.create({
         model,
@@ -394,13 +397,22 @@ const handler = {
         payload: { finding_id: finding.id, buyer_intent_id: intent.id, version: blueprint.version, model },
       })
 
-      return json({ blueprint, review_required: true })
-    } catch (error) {
+        return
+      } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown Blueprint generation error'
       await ctx.supabase.from('research_jobs').update({ status: 'failed', progress: 100, stage: 'blueprint_generation_failed', error: { message, model }, completed_at: new Date().toISOString() }).eq('id', job.id)
       await ctx.supabase.from('review_queue_items').insert({ workspace_id: project.workspace_id, project_id: project.id, research_job_id: job.id, entity_type: 'finding', entity_id: finding.id, priority: 'high', reason: `Blueprint generation failed: ${message}`, status: 'open' })
-      return json({ error: message, job_id: job.id }, 422)
-    }
+        return
+      }
+    })()
+
+    EdgeRuntime.waitUntil(generationTask)
+
+    return json({
+      pending: true,
+      job: { id: job.id, status: 'running', stage: 'generating_implementation_blueprint' },
+      message: 'Blueprint generation started in the background. You can leave this page while Riseklix builds it.',
+    }, 202)
   }),
 }
 
