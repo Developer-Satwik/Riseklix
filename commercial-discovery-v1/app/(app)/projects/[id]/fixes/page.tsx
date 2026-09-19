@@ -260,7 +260,14 @@ export default async function FixesPage({ params, searchParams }: { params: Prom
 
               {['approved', 'in_progress', 'implemented', 'verified'].includes(blueprint.status) && (
                 <section className="execution-routes">
-                  <div className="eyebrow">CHOOSE WHO EXECUTES THIS ACTION</div>
+                  <div className="execution-step-head">
+                    <span>01</span>
+                    <div>
+                      <div className="eyebrow">HOW DO YOU WANT THIS IMPLEMENTED?</div>
+                      <h3>Choose who owns the work.</h3>
+                      <p>Riseklix keeps the approved scope fixed. The execution path only changes who carries it out.</p>
+                    </div>
+                  </div>
                   <div className="execution-route-grid">
                     {routes.map(([route, title, description]) => (
                       <form action={chooseExecutionRoute} className={task?.route === route ? 'route-selected' : ''} key={route}>
