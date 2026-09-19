@@ -13,28 +13,40 @@ export function classifyUnaidedPrompt(promptText: string): UnaidedPromptEligibil
   const text = promptText.replace(/\s+/g, ' ').trim()
   if (!text) return { eligible: false, reason: 'empty' }
 
+  const criteriaOnlyPatterns = [
+    /\bwhat\s+(?:should|do)\s+(?:i|we)\s+(?:verify|check|look\s+for|consider|compare|evaluate|ask)\b/i,
+    /\bhow\s+(?:should|do|can|could)\s+(?:i|we)\s+(?:verify|check|evaluate|compare|assess|choose)\b/i,
+    /\bwhat\s+(?:criteria|factors|features|questions|requirements|checks)\b/i,
+    /\b(?:kya|kin\s+cheezon?)\s+(?:check|verify|compare|dekh|pooch)\b/i,
+    /(?:क्या|किन\s+चीज़ों|किन\s+चीजों).{0,50}(?:जाँच|जांच|देख|तुलना|पूछ)/,
+  ]
+  if (criteriaOnlyPatterns.some((pattern) => pattern.test(text))) {
+    return { eligible: false, reason: 'informational_or_criteria_only' }
+  }
+
+  const commercialOptionNouns =
+    '(?:platforms?|tools?|software|providers?|vendors?|companies|services?|solutions?|products?|options?|alternatives?|suppliers?|agencies|firms?|consultants?|programs?|networks?|banks?|carriers?|retailers?|brands?|systems?|apps?|applications?)'
+
   const englishPatterns = [
-    /\bwhich\b.{0,140}\b(platforms?|tools?|software|providers?|vendors?|companies|services?|solutions?|products?|options?|alternatives?|suppliers?|agencies|firms?|consultants?|programs?|networks?|banks?|carriers?|retailers?|brands?|systems?|apps?|applications?)\b/i,
-    /\bwhat\b.{0,100}\b(platforms?|tools?|software|providers?|vendors?|companies|services?|solutions?|products?|options?|alternatives?|suppliers?|agencies|firms?|consultants?|programs?|networks?|banks?|carriers?|retailers?|brands?|systems?|apps?|applications?)\b.{0,100}\b(should|can|could|would)\b/i,
-    /\b(recommend|recommendation|recommendations|shortlist|shortlisted|compare|comparison|alternatives?|options?)\b/i,
-    /\b(best|top)\b.{0,140}\b(platforms?|tools?|software|providers?|vendors?|companies|services?|solutions?|products?|suppliers?|agencies|firms?|consultants?|programs?|networks?|banks?|carriers?|retailers?|brands?|systems?|apps?|applications?)\b/i,
+    new RegExp('\\bwhich\\b.{0,140}\\b' + commercialOptionNouns + '\\b', 'i'),
+    new RegExp('\\bwhat\\b.{0,100}\\b' + commercialOptionNouns + '\\b.{0,100}\\b(should|can|could|would)\\b', 'i'),
+    new RegExp('\\b(compare|comparing)\\b.{0,100}\\b' + commercialOptionNouns + '\\b', 'i'),
+    /\b(recommend|recommendation|recommendations|shortlist|shortlisted|alternatives?|options?)\b/i,
+    new RegExp('\\b(best|top)\\b.{0,140}\\b' + commercialOptionNouns + '\\b', 'i'),
     /\bwho\b.{0,100}\b(can|could|should|offers?|provides?|speciali[sz]es?)\b/i,
-    /\b(list|find|show me|give me)\b.{0,100}\b(platforms?|tools?|software|providers?|vendors?|companies|services?|solutions?|products?|suppliers?|agencies|firms?|consultants?|programs?|networks?|banks?|carriers?|retailers?|brands?|systems?|apps?|applications?)\b/i,
+    new RegExp('\\b(list|find|show me|give me)\\b.{0,100}\\b' + commercialOptionNouns + '\\b', 'i'),
   ]
 
   const romanizedIndicPatterns = [
     /\b(kaun|kaunsa|kaunsi|kaunse|konsa|konsi|konse)\b/i,
-    /\b(recommend|best|compare|shortlist|options?|alternatives?|suggest)\b/i,
+    /\b(recommend|shortlist|options?|alternatives?)\b/i,
   ]
 
   const devanagariPatterns = [
     /कौन/,
     /विकल्प/,
     /शॉर्टलिस्ट/,
-    /तुलना/,
     /सुझा/,
-    /बेहतर/,
-    /सबसे\s+अच्छ/,
   ]
 
   const eligible = [...englishPatterns, ...romanizedIndicPatterns, ...devanagariPatterns]
