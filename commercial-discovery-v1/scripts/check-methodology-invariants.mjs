@@ -90,6 +90,17 @@ requireText(
   'The durable watchdog cron must remain declared in migrations.',
 )
 
+requireText(
+  watchdogMigration,
+  'where project_url is not null',
+  'Fresh environments must be able to apply the watchdog schedule before project_url is configured.',
+)
+forbidText(
+  watchdogMigration,
+  "raise exception 'Vault secret project_url",
+  'Watchdog migrations must not hard-fail fresh environments that have not configured project_url yet.',
+)
+
 
 const trustedWorkerFunctions = [
   'auto-analysis-runner',
