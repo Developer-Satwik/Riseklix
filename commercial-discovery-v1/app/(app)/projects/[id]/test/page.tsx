@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { runApprovedQuestions } from './actions'
 import { PendingButton } from '@/components/pending-button'
 import { ResearchJobWatcher } from '@/components/research-job-watcher'
+import { BenchmarkCollectionResumer } from '@/components/benchmark-collection-resumer'
 
 function record(value: unknown) {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
@@ -128,10 +129,25 @@ export default async function TestPage({ params, searchParams }: { params: Promi
         const expectedTotal = benchmarkSurfaces.reduce((sum, surface) => sum + (surface.expected_runs || 0), 0)
         const capturedTotal = benchmarkSurfaces.reduce((sum, surface) => sum + (surface.captured_runs || 0), 0)
         const completedSurfaces = benchmarkSurfaces.filter((surface) => surface.status === 'complete').length
-        const progress = expectedTotal ? Math.min(Math.round((capturedTotal / expectedTotal) * 100), 100) : 0
+        const usableSurfaces = benchmarkSurfaces.filter((surface) => {
+          const expectedRuns = Number(surface.expected_runs || 0)
+          const capturedRuns = Number(surface.captured_runs || 0)
+          return capturedRuns >= Math.max(1, Math.ceil(expectedRuns * 0.5))
+        })
+        const excludedSurfaces = benchmarkSurfaces.filter((surface) => !usableSurfaces.some((usable) => usable.provider === surface.provider))
+        const progress = baseline.status === 'complete'
+          ? 100
+          : expectedTotal
+            ? Math.min(Math.round((capturedTotal / expectedTotal) * 100), 100)
+            : 0
 
         return (
           <>
+            <BenchmarkCollectionResumer
+              projectId={id}
+              benchmarkId={baseline.id}
+              active={['draft', 'running'].includes(baseline.status)}
+            />
             <section className="test-baseline-head">
               <div>
                 <div className="eyebrow">BASELINE v{baseline.version} · {baseline.status}</div>
@@ -142,10 +158,7 @@ export default async function TestPage({ params, searchParams }: { params: Promi
               <div className="test-master-actions">
                 <Link href={`/projects/${id}/buyer-situations`} className="quiet-button">View frozen questions</Link>
                 {baseline.status !== 'complete' && (
-                  <form action={runApprovedQuestions}>
-                    <input type="hidden" name="project_id" value={id} />
-                    <PendingButton pendingLabel="Running all AI surfaces…">{activeRun ? 'Tests running…' : 'Run / continue all tests'}</PendingButton>
-                  </form>
+                  <span className="quiet-button" aria-live="polite">{activeRun ? 'Tests running automatically' : 'Collection resumes automatically'}</span>
                 )}
               </div>
             </section>
@@ -154,7 +167,9 @@ export default async function TestPage({ params, searchParams }: { params: Promi
               <div>
                 <div className="eyebrow">TOTAL COLLECTION</div>
                 <strong>{capturedTotal}/{expectedTotal || '—'} observations captured</strong>
-                <span>{completedSurfaces}/{benchmarkSurfaces.length} AI surfaces complete</span>
+                <span>{baseline.status === 'complete'
+                  ? `${usableSurfaces.length} usable AI system${usableSurfaces.length === 1 ? '' : 's'} · ${excludedSurfaces.length} excluded`
+                  : `${completedSurfaces}/${benchmarkSurfaces.length} AI systems complete`}</span>
               </div>
               <div className="benchmark-progress-track" aria-label={progress + '% complete'}><i style={{ width: progress + '%' }} /></div>
             </section>
