@@ -8,15 +8,15 @@ const MIN_USABLE_PROVIDERS = 3
 
 async function continueAutopilot(req: Request, projectId: string) {
   const authHeader = req.headers.get('Authorization')
+  const apiKeyHeader = req.headers.get('apikey')
   const supabaseUrl = Deno.env.get('SUPABASE_URL')
   const anonKey = Deno.env.get('SUPABASE_ANON_KEY')
-  if (!authHeader || !supabaseUrl) return
+  if (!supabaseUrl || (!authHeader && !apiKeyHeader)) return
 
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    Authorization: authHeader,
-  }
-  if (anonKey) headers.apikey = anonKey
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+  if (authHeader) headers.Authorization = authHeader
+  if (apiKeyHeader) headers.apikey = apiKeyHeader
+  else if (anonKey) headers.apikey = anonKey
 
   try {
     await fetch(supabaseUrl + '/functions/v1/auto-analysis-runner', {
@@ -39,8 +39,10 @@ function record(value: unknown) {
 }
 
 const handler = {
-  fetch: withSupabase({ auth: 'user' }, async (req, ctx) => {
+  fetch: withSupabase({ auth: ['user','secret'] }, async (req, ctx) => {
     if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405)
+
+    const db = ctx.authMode === 'user' ? db : ctx.supabaseAdmin
 
     let body: RequestBody
     try { body = await req.json() } catch { return json({ error: 'Invalid JSON body' }, 400) }
@@ -50,9 +52,9 @@ const handler = {
     if (!projectId || !benchmarkId) return json({ error: 'project_id and benchmark_id are required' }, 400)
 
     const [{ data: project }, { data: benchmark }, { data: activeJob }] = await Promise.all([
-      ctx.supabase.from('projects').select('id,workspace_id,analysis_mode').eq('id', projectId).single(),
-      ctx.supabase.from('benchmarks').select('id,status,benchmark_type,collection_config').eq('id', benchmarkId).eq('project_id', projectId).single(),
-      ctx.supabase
+      db.from('projects').select('id,workspace_id,analysis_mode').eq('id', projectId).single(),
+      db.from('benchmarks').select('id,status,benchmark_type,collection_config').eq('id', benchmarkId).eq('project_id', projectId).single(),
+      db
         .from('research_jobs')
         .select('id,status,stage,progress,created_at')
         .eq('project_id', projectId)
@@ -80,7 +82,7 @@ const handler = {
     if (!authHeader || !supabaseUrl) return json({ error: 'Edge Function runtime is missing authenticated invocation context' }, 500)
 
     const userId = String(ctx.userClaims?.id ?? ctx.jwtClaims?.sub ?? '') || null
-    const { data: job, error: jobError } = await ctx.supabase.from('research_jobs').insert({
+    const { data: job, error: jobError } = await db.from('research_jobs').insert({
       workspace_id: project.workspace_id,
       project_id: project.id,
       created_by: userId,
@@ -103,7 +105,7 @@ const handler = {
         { provider: 'perplexity', functionName: 'provider-observation-runner', maxRuns: 2 },
       ] as const
 
-      const surfaceRows = await ctx.supabase
+      const surfaceRows = await db
         .from('benchmark_surfaces')
         .select('id,provider,status,enabled,expected_runs,captured_runs,error_runs,metadata')
         .eq('benchmark_id', benchmark.id)
@@ -159,7 +161,7 @@ const handler = {
                 const surface = configured.find((item) => item.provider === plan.provider)
                 if (surface) {
                   const failures = Number(record(surface.metadata).orchestration_failures || 0) + 1
-                  await ctx.supabase.from('benchmark_surfaces').update({
+                  await db.from('benchmark_surfaces').update({
                     status: failures >= 2 ? 'failed' : surface.status,
                     metadata: {
                       ...record(surface.metadata),
@@ -178,7 +180,7 @@ const handler = {
             const batchFailed = Number(lastPayload.failed ?? 0)
             if (batchFailed > 0 && batchCaptured === 0) {
               const surface = configured.find((item) => item.provider === plan.provider)
-              const latestError = await ctx.supabase
+              const latestError = await db
                 .from('observation_runs')
                 .select('error_message')
                 .eq('benchmark_id', benchmark.id)
@@ -189,7 +191,7 @@ const handler = {
                 .maybeSingle()
               error = latestError.data?.error_message || 'Every observation in the provider batch failed.'
               if (surface) {
-                await ctx.supabase.from('benchmark_surfaces').update({
+                await db.from('benchmark_surfaces').update({
                   status: 'failed',
                   metadata: {
                     ...record(surface.metadata),
@@ -211,7 +213,7 @@ const handler = {
             const surface = configured.find((item) => item.provider === plan.provider)
             if (surface) {
               const failures = Number(record(surface.metadata).orchestration_failures || 0) + 1
-              await ctx.supabase.from('benchmark_surfaces').update({
+              await db.from('benchmark_surfaces').update({
                 status: failures >= 2 ? 'failed' : surface.status,
                 metadata: {
                   ...record(surface.metadata),
@@ -229,7 +231,7 @@ const handler = {
         return { provider: plan.provider, payload: lastPayload, error }
       }))
 
-      const refreshed = await ctx.supabase
+      const refreshed = await db
         .from('benchmark_surfaces')
         .select('provider,status,expected_runs,captured_runs,error_runs')
         .eq('benchmark_id', benchmark.id)
@@ -253,7 +255,7 @@ const handler = {
       const progress = expected ? Math.min(100, Math.max(1, Math.round((captured / expected) * 100))) : 1
 
       if (complete || insufficientCoverage) {
-        await ctx.supabase.from('benchmarks').update({
+        await db.from('benchmarks').update({
           status: complete ? 'complete' : 'failed',
           completed_at: new Date().toISOString(),
           collection_config: {
@@ -268,7 +270,7 @@ const handler = {
         }).eq('id', benchmark.id)
       }
 
-      await ctx.supabase.from('research_jobs').update({
+      await db.from('research_jobs').update({
         status: 'succeeded',
         progress,
         stage: complete
@@ -294,7 +296,7 @@ const handler = {
       // layer still needs to finish before the project can be marked complete.
       // Manual mode keeps the legacy benchmark-complete project state.
       if (complete && (project.analysis_mode !== 'autopilot' || benchmark.benchmark_type === 'recheck')) {
-        await ctx.supabase.from('projects').update({
+        await db.from('projects').update({
           status: 'complete',
           updated_at: new Date().toISOString(),
         }).eq('id', project.id)
@@ -305,7 +307,7 @@ const handler = {
       }
     })().catch(async (error) => {
       const message = error instanceof Error ? error.message : 'Unknown multi-surface observation error'
-      await ctx.supabase.from('research_jobs').update({
+      await db.from('research_jobs').update({
         status: 'failed',
         stage: 'multi_surface_observation_failed',
         error: { message },
