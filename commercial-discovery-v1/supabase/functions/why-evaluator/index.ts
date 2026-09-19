@@ -1,5 +1,6 @@
 import { withSupabase } from 'npm:@supabase/server'
 import OpenAI from 'npm:openai'
+import { openAIPromptCacheKey, recordOpenAIUsage } from '../_shared/openai-usage.ts'
 
 type RequestBody = {
   project_id?: string
@@ -36,6 +37,31 @@ const WHY_SCHEMA = {
     source_refs: { type: 'array', items: { type: 'string' } },
   },
 } as const
+
+const BATCHED_WHY_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['findings'],
+  properties: {
+    findings: {
+      type: 'array',
+      maxItems: 8,
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['buyer_intent_id', ...WHY_SCHEMA.required],
+        properties: {
+          buyer_intent_id: { type: 'string' },
+          ...WHY_SCHEMA.properties,
+        },
+      },
+    },
+  },
+} as const
+
+type BatchedWhyOutput = {
+  findings: Array<WhyOutput & { buyer_intent_id: string }>
+}
 
 async function continueAutopilot(req: Request, projectId: string) {
   const authHeader = req.headers.get('Authorization')
@@ -158,6 +184,50 @@ function observationSummary(runs: Array<Record<string, unknown>>, targetName: st
   }
 }
 
+function compactObservationEvidence(runs: Array<Record<string, unknown>>) {
+  const captured = runs.filter((run) => run.run_status === 'captured')
+  const selected: Array<Record<string, unknown>> = []
+  const seen = new Set<string>()
+
+  const take = (predicate: (run: Record<string, unknown>) => boolean, limit: number) => {
+    for (const run of captured) {
+      if (selected.length >= 5 || limit <= 0) break
+      if (!predicate(run)) continue
+      const key = `${String(run.provider)}:${String(run.prompt_expression_id)}:${String(run.repetition)}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      selected.push(run)
+      limit--
+    }
+  }
+
+  take((run) => record(run.metadata).prompt_mode === 'unaided' && run.retrieval_status === 'retrieved', 2)
+  take((run) => record(run.metadata).prompt_mode === 'unaided' && run.retrieval_status !== 'retrieved', 2)
+  take((run) => record(run.metadata).prompt_mode === 'aided', 1)
+
+  return selected.map((run) => ({
+    provider: run.provider,
+    surface: run.surface,
+    prompt_mode: record(run.metadata).prompt_mode ?? null,
+    retrieval_status: run.retrieval_status,
+    target_rank: run.target_rank,
+    target_mentioned: record(run.metadata).target_mentioned ?? null,
+    target_in_recommended_set: record(run.metadata).target_in_recommended_set ?? null,
+    recommended_brands: (Array.isArray(run.extracted_brands) ? run.extracted_brands : [])
+      .filter((value) => record(value).in_recommended_set === true)
+      .map((value) => brandName(value))
+      .filter(Boolean)
+      .slice(0, 8),
+    citation_urls: (Array.isArray(run.citations) ? run.citations : [])
+      .map((value) => record(value).url)
+      .filter((value): value is string => typeof value === 'string')
+      .slice(0, 6),
+    answer_excerpt: typeof run.raw_answer === 'string'
+      ? run.raw_answer.replace(/\s+/g, ' ').trim().slice(0, 900)
+      : null,
+  }))
+}
+
 const handler = {
   fetch: withSupabase({ auth: 'user' }, async (req, ctx) => {
     if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405)
@@ -248,108 +318,219 @@ const handler = {
     let generated = 0
     let skipped = 0
 
-    for (let index = 0; index < eligibleIntents.length; index++) {
-      const intent = eligibleIntents[index]
-      const intentRuns = capturedRuns.filter((run) => run.buyer_intent_id === intent.id).map((run) => run as unknown as Record<string, unknown>)
+    const packets = eligibleIntents.map((intent) => {
+      const intentRuns = capturedRuns
+        .filter((run) => run.buyer_intent_id === intent.id)
+        .map((run) => run as unknown as Record<string, unknown>)
       const summary = observationSummary(intentRuns, profile.company_name)
+
       if (!summary.unaided_captured) {
         skipped++
-        continue
+        return null
       }
 
       const intentCompetitors = (competitors ?? []).filter((candidate) => candidate.buyer_intent_id === intent.id)
       const referencedSourceIds = new Set<string>()
-      for (const candidate of intentCompetitors) for (const ref of stringArray(candidate.source_refs)) referencedSourceIds.add(ref)
+      for (const candidate of intentCompetitors) {
+        for (const ref of stringArray(candidate.source_refs)) referencedSourceIds.add(ref)
+      }
 
-      const firstPartySources = (sources ?? []).filter((source) => source.source_type === 'first_party').slice(0, 12)
+      const firstPartySources = (sources ?? [])
+        .filter((source) => source.source_type === 'first_party')
+        .slice(0, 8)
       for (const source of firstPartySources) referencedSourceIds.add(source.id)
-      const evidenceSources = Array.from(referencedSourceIds).map((id) => sourceById.get(id)).filter(Boolean).map((source) => sourcePacket(source!))
-      const validSourceIds = new Set(evidenceSources.map((source) => source.ref))
 
-      const observationEvidence = intentRuns.map((run) => ({
-        provider: run.provider,
-        surface: run.surface,
-        model_label: run.model_label,
-        repetition: run.repetition,
-        language: run.language,
-        prompt_mode: record(run.metadata).prompt_mode ?? null,
-        retrieval_status: run.retrieval_status,
-        target_rank: run.target_rank,
-        target_mentioned: record(run.metadata).target_mentioned ?? null,
-        target_in_recommended_set: record(run.metadata).target_in_recommended_set ?? null,
-        extracted_brands: run.extracted_brands,
-        citations: run.citations,
-        answer_excerpt: typeof run.raw_answer === 'string' ? run.raw_answer.slice(0, 5000) : null,
-      }))
+      const evidenceSources = Array.from(referencedSourceIds)
+        .map((id) => sourceById.get(id))
+        .filter(Boolean)
+        .map((source) => sourcePacket(source!))
 
+      return {
+        intent,
+        summary,
+        compact_observations: compactObservationEvidence(intentRuns),
+        competitors: intentCompetitors.map((candidate) => ({
+          company_name: candidate.company_name,
+          domain: candidate.domain,
+          relationship: candidate.relationship,
+          discovery_layer: candidate.discovery_layer,
+          matched_constraints: candidate.matched_constraints,
+          relaxed_constraints: candidate.relaxed_constraints,
+          evidence_strength: candidate.evidence_strength,
+          rationale: candidate.rationale,
+          source_refs: candidate.source_refs,
+        })),
+        evidence_sources: evidenceSources,
+        valid_source_ids: evidenceSources.map((source) => source.ref),
+      }
+    }).filter(Boolean) as Array<{
+      intent: NonNullable<typeof eligibleIntents>[number]
+      summary: ReturnType<typeof observationSummary>
+      compact_observations: ReturnType<typeof compactObservationEvidence>
+      competitors: Array<Record<string, unknown>>
+      evidence_sources: ReturnType<typeof sourcePacket>[]
+      valid_source_ids: string[]
+    }>
+
+    if (packets.length) {
       try {
         const response = await openai.responses.create({
           model,
           reasoning: { effort: 'high' },
-          instructions: `You are the WHY Evaluator for Riseklix Commercial Discovery.\n\nYou are interpreting captured observations and supplied evidence. You are NOT discovering new facts and you do not have permission to invent causes.\n\nThe fields OBSERVED and AIDED CONTROL have already been computed deterministically and are not yours to rewrite. Your job is to characterize competitor patterns, compare available evidence, identify counter-evidence, and decide whether action is justified.\n\nRules:\n1. explanation must always be framed as a possible explanation, never a proven cause. Use language such as “may”, “could”, “is consistent with”, or “one plausible explanation”.\n2. A retrieval miss does not prove a website/content deficiency. Models are stochastic; provider/surface coverage may be narrow.\n3. Distinguish entity understanding from selection. If aided controls recognize the company but unaided retrieval is weak, that is more consistent with selection/association/evidence issues than total entity absence.\n4. If aided controls also fail to recognize the target, entity/capability understanding may be a more plausible hypothesis, but still not proven.\n5. Compare the target only with the intent-specific competitor evidence supplied.\n6. Do not infer certifications, fleet, locations, rental, service coverage, SLAs or capabilities not present in the supplied evidence.\n7. Counter-evidence is mandatory. State what weakens the proposed explanation or what evidence points another way.\n8. “healthy”, “monitor”, “investigate”, “no_change”, and “uncertain” are valid outcomes. Do not manufacture work.\n9. evidence_strength reflects the support for the interpretation, not confidence in the model itself. Use strong only when multiple observation repetitions plus concrete evidence converge.\n10. source_refs may contain only supplied evidence-source refs.`,
-          input: `Target company: ${profile.company_name}\nMarket: ${project.market}\n\nApproved Buyer Intent:\n${JSON.stringify(intent)}\n\nDeterministic observation summary:\n${JSON.stringify(summary)}\n\nCaptured observation evidence:\n${JSON.stringify(observationEvidence)}\n\nIntent-specific competitors:\n${JSON.stringify(intentCompetitors)}\n\nTarget + competitor evidence sources:\n${JSON.stringify(evidenceSources)}`,
-          text: { format: { type: 'json_schema', name: 'riseklix_why_finding', strict: true, schema: WHY_SCHEMA } },
+          prompt_cache_key: openAIPromptCacheKey(project.id, 'why'),
+          prompt_cache_options: { mode: 'implicit', ttl: '30m' },
+          instructions: `You are the WHY Evaluator for Riseklix Commercial Discovery.
+
+You are interpreting captured observations and supplied evidence. You are NOT discovering new facts and you do not have permission to invent causes.
+
+You will receive several Buyer Intents together. Return exactly one finding for every supplied buyer_intent_id. Looking across intents for repeated patterns is allowed, but each finding must remain specific to its own commercial buying situation.
+
+The OBSERVED and AIDED CONTROL summaries are deterministic and are not yours to rewrite. Your job is to characterize competitor patterns, compare available evidence, identify counter-evidence, and decide whether action is justified.
+
+Rules:
+1. explanation must always be framed as a possible explanation, never a proven cause. Use language such as “may”, “could”, “is consistent with”, or “one plausible explanation”.
+2. A retrieval miss does not prove a website/content deficiency. Models are stochastic; provider/surface coverage may be narrow.
+3. Distinguish entity understanding from selection. If aided controls recognize the company but unaided retrieval is weak, that is more consistent with selection/association/evidence issues than total entity absence.
+4. If aided controls also fail to recognize the target, entity/capability understanding may be a more plausible hypothesis, but still not proven.
+5. Compare the target only with the intent-specific competitor evidence supplied for that buyer_intent_id.
+6. Do not infer certifications, locations, service coverage, SLAs or capabilities not present in the supplied evidence.
+7. Counter-evidence is mandatory.
+8. healthy, monitor, investigate, no_change, and uncertain are valid outcomes. Do not manufacture work.
+9. evidence_strength reflects support for the interpretation, not confidence in the model itself.
+10. source_refs may contain only refs supplied inside that intent packet.
+11. The compact observation excerpts are representative context only. The deterministic summary is authoritative for counts, ranks and aided/unaided rates.`,
+          input: `Target company: ${profile.company_name}
+Market: ${project.market}
+
+Approved Company Intelligence summary:
+${JSON.stringify({
+  summary: profile.summary,
+  industry: profile.industry,
+  business_model: profile.business_model,
+  products: profile.products,
+  services: profile.services,
+  audiences: profile.audiences,
+  geographies: profile.geographies,
+  uncertainty: profile.uncertainty,
+})}
+
+Buyer Intent evidence packets:
+${JSON.stringify(packets)}`,
+          text: {
+            format: {
+              type: 'json_schema',
+              name: 'riseklix_batched_why_findings',
+              strict: true,
+              schema: BATCHED_WHY_SCHEMA,
+            },
+          },
+        })
+
+        await recordOpenAIUsage(ctx.supabase, response, {
+          workspaceId: project.workspace_id,
+          projectId: project.id,
+          researchJobId: job.id,
+          stage: 'why_evaluation',
+          model,
+          metadata: {
+            benchmark_id: benchmark.id,
+            buyer_intent_ids: packets.map((packet) => packet.intent.id),
+            batched_intent_count: packets.length,
+            evidence_mode: 'deterministic_summary_plus_representative_excerpts',
+          },
         })
 
         const raw = outputText(response)
         if (!raw) throw new Error('WHY model returned no structured output')
-        const parsed = JSON.parse(raw) as WhyOutput
-        const sourceRefs = parsed.source_refs.filter((ref) => validSourceIds.has(ref))
+        const parsed = JSON.parse(raw) as BatchedWhyOutput
+        const resultByIntent = new Map(parsed.findings.map((finding) => [finding.buyer_intent_id, finding]))
 
-        if (body.regenerate) {
-          await ctx.supabase.from('findings').update({ is_current: false }).eq('benchmark_id', benchmark.id).eq('buyer_intent_id', intent.id).eq('is_current', true)
+        for (let index = 0; index < packets.length; index++) {
+          const packet = packets[index]
+          const intent = packet.intent
+          const findingOutput = resultByIntent.get(intent.id)
+
+          if (!findingOutput) {
+            await ctx.supabase.from('review_queue_items').insert({
+              workspace_id: project.workspace_id,
+              project_id: project.id,
+              research_job_id: job.id,
+              entity_type: 'buyer_intent',
+              entity_id: intent.id,
+              priority: 'high',
+              reason: `WHY batch omitted ${intent.intent_key}; manual review is required.`,
+              status: 'open',
+            })
+            continue
+          }
+
+          const validSourceIds = new Set(packet.valid_source_ids)
+          const sourceRefs = findingOutput.source_refs.filter((ref) => validSourceIds.has(ref))
+
+          if (body.regenerate) {
+            await ctx.supabase
+              .from('findings')
+              .update({ is_current: false })
+              .eq('benchmark_id', benchmark.id)
+              .eq('buyer_intent_id', intent.id)
+              .eq('is_current', true)
+          }
+
+          const { data: finding, error: insertError } = await ctx.supabase.from('findings').insert({
+            workspace_id: project.workspace_id,
+            project_id: project.id,
+            benchmark_id: benchmark.id,
+            buyer_intent_id: intent.id,
+            generation_job_id: job.id,
+            is_current: true,
+            source_refs: sourceRefs,
+            finding_type: findingOutput.finding_type,
+            severity: findingOutput.severity,
+            decision: findingOutput.decision,
+            observed: packet.summary.observedText,
+            aided_control: packet.summary.aidedText,
+            competitor_pattern: findingOutput.competitor_pattern,
+            client_evidence: findingOutput.client_evidence,
+            counter_evidence: findingOutput.counter_evidence,
+            explanation: findingOutput.explanation,
+            evidence_strength: findingOutput.evidence_strength,
+            review_status: 'generated',
+          }).select('id').single()
+
+          if (insertError || !finding) throw insertError ?? new Error(`Could not store WHY finding for ${intent.intent_key}`)
+
+          const links = sourceRefs.map((sourceId) => ({
+            workspace_id: project.workspace_id,
+            project_id: project.id,
+            source_id: sourceId,
+            entity_type: 'finding',
+            entity_id: finding.id,
+            relation: 'context',
+            claim_text: `Evidence context used in WHY evaluation for ${intent.intent_key}.`,
+          }))
+          if (links.length) await ctx.supabase.from('evidence_links').insert(links)
+
+          generated++
+          await ctx.supabase.from('research_jobs').update({
+            progress: Math.round(((index + 1) / packets.length) * 100),
+            stage: `why_storing_${index + 1}_of_${packets.length}`,
+          }).eq('id', job.id)
         }
-
-        const { data: finding, error: insertError } = await ctx.supabase.from('findings').insert({
-          workspace_id: project.workspace_id,
-          project_id: project.id,
-          benchmark_id: benchmark.id,
-          buyer_intent_id: intent.id,
-          generation_job_id: job.id,
-          is_current: true,
-          source_refs: sourceRefs,
-          finding_type: parsed.finding_type,
-          severity: parsed.severity,
-          decision: parsed.decision,
-          observed: summary.observedText,
-          aided_control: summary.aidedText,
-          competitor_pattern: parsed.competitor_pattern,
-          client_evidence: parsed.client_evidence,
-          counter_evidence: parsed.counter_evidence,
-          explanation: parsed.explanation,
-          evidence_strength: parsed.evidence_strength,
-          review_status: 'generated',
-        }).select('id').single()
-
-        if (insertError || !finding) throw insertError ?? new Error('Could not store WHY finding')
-
-        const links = sourceRefs.map((sourceId) => ({
-          workspace_id: project.workspace_id,
-          project_id: project.id,
-          source_id: sourceId,
-          entity_type: 'finding',
-          entity_id: finding.id,
-          relation: 'context',
-          claim_text: `Evidence context used in WHY evaluation for ${intent.intent_key}.`,
-        }))
-        if (links.length) await ctx.supabase.from('evidence_links').insert(links)
-
-        generated++
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Unknown WHY evaluation error'
-        await ctx.supabase.from('review_queue_items').insert({
-          workspace_id: project.workspace_id,
-          project_id: project.id,
-          research_job_id: job.id,
-          entity_type: 'buyer_intent',
-          entity_id: intent.id,
-          priority: 'high',
-          reason: `WHY evaluation failed for ${intent.intent_key}: ${message}`,
-          status: 'open',
-        })
+        for (const packet of packets) {
+          await ctx.supabase.from('review_queue_items').insert({
+            workspace_id: project.workspace_id,
+            project_id: project.id,
+            research_job_id: job.id,
+            entity_type: 'buyer_intent',
+            entity_id: packet.intent.id,
+            priority: 'high',
+            reason: `WHY evaluation failed for ${packet.intent.intent_key}: ${message}`,
+            status: 'open',
+          })
+        }
       }
-
-      await ctx.supabase.from('research_jobs').update({ progress: Math.round(((index + 1) / eligibleIntents.length) * 100), stage: `why_${index + 1}_of_${eligibleIntents.length}` }).eq('id', job.id)
     }
 
     const status = generated ? 'succeeded' : 'failed'
