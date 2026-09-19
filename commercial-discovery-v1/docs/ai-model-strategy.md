@@ -10,11 +10,11 @@ Use the strongest model where commercial reasoning quality is the product. Use l
 | --- | --- | --- |
 | Company Intelligence + outside-in verification | GPT-5.6 Sol | Core commercial reasoning and company reconstruction |
 | Buyer Intent Suggestor | GPT-5.6 Sol | Core differentiator; needs deep commercial reasoning |
-| Intent-specific competitor discovery | GPT-5.6 Sol + web search | Relevance and fit matter more than marginal token cost |
-| WHY evaluator | GPT-5.6 Sol | Evidence-bounded synthesis is high-value reasoning |
+| Intent-specific competitor discovery | GPT-5.6 Terra + Firecrawl, conditional Sol escalation | Use the cheaper classifier when evidence is clear; escalate only when a broad retrieval set yields no defensible candidate |
+| WHY evaluator | GPT-5.6 Sol | One batched cross-intent reasoning call over compact deterministic evidence; preserves high-value reasoning while removing repeated raw-answer context |
 | Blueprint generator | GPT-5.6 Terra | Strong implementation quality with better cost balance |
 | Buyer-question generator | GPT-5.6 Luna | Controlled natural-language wording task |
-| Brand/rank extractor | GPT-5.6 Luna | Structured extraction from an already-produced answer |
+| Brand/rank extractor | GPT-5.6 Luna | Batch extraction per observation batch, with individual fallback only for omitted/failed items |
 
 ## Observation surfaces
 
@@ -73,3 +73,17 @@ The product should show the buyer question once, then the observed answer/result
 ## Observation cost policy
 
 High-volume observation should use economical models and bounded external retrieval. Claude observations default to Haiku 4.5 and receive compact Firecrawl search-result evidence instead of Anthropic's native web-search tool. This reduces token amplification and native search charges while keeping the observation methodology explicit. Gemini is opt-in through `RISEKLIX_ENABLE_GEMINI_OBSERVATIONS=true` after its API billing/quota is intentionally enabled.
+
+
+## Cost-control architecture
+
+Riseklix preserves frontier reasoning at the commercial decision gates and removes repeated model work elsewhere.
+
+- Every OpenAI call records token usage, cached-input usage, cache writes, reasoning tokens, web-search calls and a price-snapshot estimate in `ai_usage_events`.
+- GPT-5.6 prompt caching is enabled on reusable stage prefixes. Cache telemetry is visible in Method.
+- WHY uses deterministic retrieval/aided/rank summaries plus a small representative excerpt set instead of resending every full model answer, and evaluates the active Buyer Situations in one structured Sol call.
+- Competitor discovery defaults to Terra over Firecrawl retrieval. It escalates to Sol only when the retrieval universe is broad but the primary classifier cannot produce a defensible candidate shape.
+- OpenAI brand extraction is batched; individual Luna extraction is a quality-preserving fallback.
+- Blueprints remain Terra-high but run as background work using Flex pricing when available, with automatic Standard fallback.
+- Rechecks reuse the frozen prompt panel, surfaces, Company Intelligence and Buyer Situations. They do not regenerate discovery inputs unless a separate refresh is explicitly requested.
+- Company Intelligence and Buyer Situation generation remain Sol-medium because errors at those gates contaminate every downstream result.
