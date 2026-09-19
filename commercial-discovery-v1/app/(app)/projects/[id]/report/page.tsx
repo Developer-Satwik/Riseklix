@@ -8,6 +8,14 @@ function pct(hit: number, total: number) {
   return total ? Math.round((hit / total) * 100) : 0
 }
 
+function record(value: unknown) {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
+}
+
+function stringArray(value: unknown) {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []
+}
+
 function severityRank(value: string) {
   return value === 'critical' ? 0 : value === 'high' ? 1 : value === 'medium' ? 2 : 3
 }
@@ -71,23 +79,32 @@ export default async function ReportPage({ params }: { params: Promise<{ id: str
   const intentById = new Map((intents ?? []).map((intent) => [intent.id, intent]))
   const benchmarkObservations = (observations ?? []).filter((run) => !benchmark?.id || run.benchmark_id === benchmark.id)
   const benchmarkSurfaces = (surfaces ?? []).filter((surface) => !benchmark?.id || surface.benchmark_id === benchmark.id)
-  const captured = benchmarkObservations.filter((run) => run.run_status === 'captured')
+  const capturedErrors = benchmarkObservations.filter((run) => run.run_status === 'error').length
+  const minimumUsableProviders = 3
+  const benchmarkConfig = record(benchmark?.collection_config)
+  const frozenUsableProviders = stringArray(benchmarkConfig.usable_providers)
+  const frozenUsableProviderSet = new Set(frozenUsableProviders)
+  const usableSurfaces = frozenUsableProviderSet.size
+    ? benchmarkSurfaces.filter((surface) => frozenUsableProviderSet.has(surface.provider))
+    : benchmarkSurfaces.filter((surface) => {
+        const expectedRuns = Number(surface.expected_runs || 0)
+        const capturedRuns = Number(surface.captured_runs || 0)
+        return capturedRuns >= Math.max(1, Math.ceil(expectedRuns * 0.5))
+      })
+  const usableProviderSet = new Set(usableSurfaces.map((surface) => surface.provider))
+  const excludedSurfaces = benchmarkSurfaces.filter((surface) => !usableProviderSet.has(surface.provider))
+
+  // Aggregate report metrics must use exactly the provider set admitted by the
+  // benchmark coverage policy. Partial captures from excluded providers remain
+  // visible in provider diagnostics, but never affect retrieval, rank, intent,
+  // competitor or WHY aggregates.
+  const captured = benchmarkObservations.filter((run) => run.run_status === 'captured' && usableProviderSet.has(run.provider))
   const unaided = captured.filter((run) => promptById.get(run.prompt_expression_id)?.mode === 'unaided')
   const aided = captured.filter((run) => promptById.get(run.prompt_expression_id)?.mode === 'aided')
   const unaidedRetrieved = unaided.filter((run) => run.retrieval_status === 'retrieved')
   const aidedRetrieved = aided.filter((run) => run.retrieval_status === 'retrieved')
   const ranked = unaidedRetrieved.map((run) => run.target_rank).filter((value): value is number => typeof value === 'number')
   const avgRank = ranked.length ? (ranked.reduce((sum, value) => sum + value, 0) / ranked.length).toFixed(1) : null
-
-  const capturedErrors = benchmarkObservations.filter((run) => run.run_status === 'error').length
-  const minimumUsableProviders = 3
-  const usableSurfaces = benchmarkSurfaces.filter((surface) => {
-    const expectedRuns = Number(surface.expected_runs || 0)
-    const capturedRuns = Number(surface.captured_runs || 0)
-    return capturedRuns >= Math.max(1, Math.ceil(expectedRuns * 0.5))
-  })
-  const usableProviderSet = new Set(usableSurfaces.map((surface) => surface.provider))
-  const excludedSurfaces = benchmarkSurfaces.filter((surface) => !usableProviderSet.has(surface.provider))
   const actionFindings = (findings ?? [])
     .filter((finding) => finding.review_status === 'approved' && finding.decision === 'fix')
     .sort((a, b) => severityRank(a.severity) - severityRank(b.severity))
