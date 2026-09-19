@@ -283,7 +283,6 @@ html[data-sidebar-collapsed="true"] .sidebar-avatar{width:28px;height:28px}
 .sidebar-workspace-copy{min-width:0;display:grid;gap:1px}
 .sidebar-workspace-copy small{font-size:6px;letter-spacing:.09em;text-transform:uppercase;color:#5f5a53}
 .sidebar-workspace-copy strong{margin:0!important;font-size:9px!important;font-weight:650!important;color:#bcb6ad!important}
-.sidebar-workspace-state{font-size:6px!important;letter-spacing:.06em!important;text-transform:uppercase!important;color:#74816b!important;padding:3px 5px;border:1px solid rgba(158,175,143,.16);border-radius:999px;background:rgba(158,175,143,.05)}
 
 .sidebar-section-label{margin:19px 9px 6px;font-size:6px;font-weight:750;letter-spacing:.13em;text-transform:uppercase;color:#514d47}
 .workspace-sidebar nav{display:grid;gap:3px;margin:0!important}
@@ -472,8 +471,8 @@ html[data-sidebar-collapsed="true"] .sidebar-collapse-button svg{transform:scale
 
 /* Workspace identity simplification */
 .sidebar-workspace{
-  grid-template-columns:minmax(0,1fr) auto!important;
-  gap:10px!important;
+  grid-template-columns:minmax(0,1fr)!important;
+  gap:0!important;
   padding:10px 11px!important;
 }
 .sidebar-workspace-mark{display:none!important}
