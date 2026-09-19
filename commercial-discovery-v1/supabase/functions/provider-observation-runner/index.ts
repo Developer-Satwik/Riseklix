@@ -1,6 +1,7 @@
 import { withSupabase } from 'npm:@supabase/server'
 import OpenAI from 'npm:openai'
 import type { SupabaseClient } from 'npm:@supabase/supabase-js'
+import { firecrawlSearch, type FirecrawlDocument } from '../_shared/firecrawl.ts'
 
 type Provider = 'google' | 'anthropic' | 'perplexity'
 type RequestBody = { project_id?: string; benchmark_id?: string; provider?: Provider; max_runs?: number }
@@ -48,10 +49,10 @@ const PROVIDERS: Record<Provider, {
   anthropic: {
     secret: 'ANTHROPIC_API_KEY',
     modelEnv: 'RISEKLIX_ANTHROPIC_OBSERVATION_MODEL',
-    defaultModel: 'claude-sonnet-5',
-    surface: 'anthropic_messages_web_search',
-    displayName: 'Claude API · Sonnet proxy',
-    methodology: 'Anthropic Messages API with server-side web search. This is an API observation surface, not the Claude consumer application.',
+    defaultModel: 'claude-haiku-4-5',
+    surface: 'anthropic_messages_firecrawl_grounded',
+    displayName: 'Claude API · Haiku + Firecrawl',
+    methodology: 'Anthropic Messages API using Claude Haiku 4.5 over compact Firecrawl search evidence. This is not Claude consumer search or Anthropic native web search.',
   },
   perplexity: {
     secret: 'PERPLEXITY_API_KEY',
@@ -176,7 +177,26 @@ async function runGoogle(prompt: string, apiKey: string, model: string): Promise
   }
 }
 
-async function anthropicRequest(prompt: string, apiKey: string, model: string, messages?: unknown[]) {
+function firecrawlContext(results: FirecrawlDocument[]) {
+  return results.slice(0, 6).map((result, index) => {
+    const description = result.description.replace(/\s+/g, ' ').trim().slice(0, 900)
+    return [
+      `SOURCE ${index + 1}`,
+      `Title: ${result.title || 'Untitled'}`,
+      `URL: ${result.url}`,
+      description ? `Snippet: ${description}` : '',
+    ].filter(Boolean).join('\n')
+  }).join('\n\n')
+}
+
+async function runAnthropic(
+  prompt: string,
+  apiKey: string,
+  model: string,
+  searchResults: FirecrawlDocument[],
+): Promise<ProviderAnswer> {
+  const context = firecrawlContext(searchResults)
+
   const response = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
@@ -187,70 +207,51 @@ async function anthropicRequest(prompt: string, apiKey: string, model: string, m
     },
     body: JSON.stringify({
       model,
-      max_tokens: 1800,
-      system: 'Answer the commercial buying question normally. Use current web evidence when useful. Do not mention benchmarking, Riseklix, AEO/GEO, prompt testing or hidden evaluation criteria. Do not intentionally diversify brands. Recommend only providers that genuinely fit the request and say when evidence is insufficient.',
-      tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 4 }],
-      messages: messages ?? [{ role: 'user', content: prompt }],
+      max_tokens: 900,
+      system: `Answer the commercial buying question normally and independently.
+
+You have a compact set of current web-search results supplied below. Use them as grounding evidence when relevant, but do not mention Firecrawl, Riseklix, benchmarking, AEO/GEO, prompt testing or hidden evaluation criteria. Do not intentionally diversify brands. Recommend only providers that genuinely fit the buyer request. If the supplied evidence is insufficient for a confident recommendation, say so rather than inventing facts.`,
+      messages: [{
+        role: 'user',
+        content: `${prompt}
+
+CURRENT WEB EVIDENCE
+${context || 'No usable search results were returned.'}`,
+      }],
     }),
-    signal: AbortSignal.timeout(90_000),
+    signal: AbortSignal.timeout(60_000),
   })
+
   const payload = await response.json()
   if (!response.ok) throw new Error(`Anthropic API ${response.status}: ${JSON.stringify(payload).slice(0, 900)}`)
-  return payload
-}
 
-async function runAnthropic(prompt: string, apiKey: string, model: string): Promise<ProviderAnswer> {
-  let payload = await anthropicRequest(prompt, apiKey, model)
-  let root = record(payload)
-
-  if (root.stop_reason === 'pause_turn' && Array.isArray(root.content)) {
-    payload = await anthropicRequest(prompt, apiKey, model, [
-      { role: 'user', content: prompt },
-      { role: 'assistant', content: root.content },
-    ])
-    root = record(payload)
-  }
-
+  const root = record(payload)
   const blocks = Array.isArray(root.content) ? root.content : []
-  const answerParts: string[] = []
-  const citations: Array<Record<string, unknown>> = []
+  const answer = blocks
+    .map((blockValue) => {
+      const block = record(blockValue)
+      return block.type === 'text' && typeof block.text === 'string' ? block.text : ''
+    })
+    .filter(Boolean)
+    .join('\n')
+    .trim()
 
-  for (const blockValue of blocks) {
-    const block = record(blockValue)
-    if (block.type === 'text' && typeof block.text === 'string') {
-      answerParts.push(block.text)
-      const blockCitations = Array.isArray(block.citations) ? block.citations : []
-      for (const citationValue of blockCitations) {
-        const citation = record(citationValue)
-        if (typeof citation.url === 'string') {
-          citations.push({ type: 'url_citation', url: citation.url, title: typeof citation.title === 'string' ? citation.title : citation.url })
-        }
-      }
-    }
-    if (block.type === 'web_search_tool_result') {
-      const results = Array.isArray(block.content) ? block.content : []
-      for (const resultValue of results) {
-        const result = record(resultValue)
-        if (typeof result.url === 'string') {
-          citations.push({ type: 'search_result', url: result.url, title: typeof result.title === 'string' ? result.title : result.url })
-        }
-      }
-    }
-  }
-
-  const answer = answerParts.join('\n').trim()
   if (!answer) throw new Error('Claude returned no final text answer')
 
-  const seen = new Set<string>()
   return {
     answer,
-    citations: citations.filter((item) => {
-      const url = String(item.url)
-      if (seen.has(url)) return false
-      seen.add(url)
-      return true
-    }),
-    metadata: { stop_reason: root.stop_reason ?? null, usage: root.usage ?? null },
+    citations: searchResults.slice(0, 6).map((result) => ({
+      type: 'search_result',
+      url: result.url,
+      title: result.title || result.url,
+    })),
+    metadata: {
+      stop_reason: root.stop_reason ?? null,
+      usage: root.usage ?? null,
+      grounding_provider: 'firecrawl_search',
+      grounding_result_count: searchResults.length,
+      native_anthropic_web_search: false,
+    },
   }
 }
 
@@ -384,10 +385,19 @@ const handler = {
 
     const providerConfig = PROVIDERS[provider]
     const providerKey = Deno.env.get(providerConfig.secret)
+    const firecrawlKey = Deno.env.get('FIRECRAWL_API_KEY')
     if (!providerKey) {
       return json({
         error: 'observation_provider_not_configured',
         message: `${providerConfig.secret} is not configured for the ${providerConfig.displayName} observation surface.`,
+        provider,
+      }, 503)
+    }
+
+    if (provider === 'anthropic' && !firecrawlKey) {
+      return json({
+        error: 'observation_grounding_not_configured',
+        message: 'FIRECRAWL_API_KEY is required for the Claude observation surface.',
         provider,
       }, 503)
     }
@@ -522,6 +532,7 @@ const handler = {
 
     let captured = 0
     let failed = 0
+    const anthropicGroundingCache = new Map<string, Promise<FirecrawlDocument[]>>()
 
     for (let index = 0; index < batch.length; index++) {
       const plan = batch[index]
@@ -534,11 +545,24 @@ const handler = {
       const competitorNames = (competitors ?? []).map((item) => item.company_name)
 
       try {
-        const providerAnswer = provider === 'google'
-          ? await runGoogle(plan.promptText, providerKey, observationModel)
-          : provider === 'anthropic'
-            ? await runAnthropic(plan.promptText, providerKey, observationModel)
-            : await runPerplexity(plan.promptText, providerKey, observationModel)
+        let providerAnswer: ProviderAnswer
+
+        if (provider === 'google') {
+          providerAnswer = await runGoogle(plan.promptText, providerKey, observationModel)
+        } else if (provider === 'anthropic') {
+          let grounding = anthropicGroundingCache.get(plan.promptId)
+          if (!grounding) {
+            grounding = firecrawlSearch(firecrawlKey as string, plan.promptText, {
+              limit: 6,
+              location: project.market,
+              scrape: false,
+            })
+            anthropicGroundingCache.set(plan.promptId, grounding)
+          }
+          providerAnswer = await runAnthropic(plan.promptText, providerKey, observationModel, await grounding)
+        } else {
+          providerAnswer = await runPerplexity(plan.promptText, providerKey, observationModel)
+        }
 
         let extraction: Extraction
         try {
@@ -561,7 +585,7 @@ const handler = {
           language: plan.language,
           geography: project.market,
           session_state: { fresh_session: true, prior_context: false },
-          search_mode: 'provider_web_grounding',
+          search_mode: provider === 'anthropic' ? 'firecrawl_search_grounding' : 'provider_web_grounding',
           run_status: 'captured',
           retrieval_status: extraction.target_in_recommended_set ? 'retrieved' : 'nr',
           target_rank: extraction.target_rank,
@@ -600,7 +624,7 @@ const handler = {
           language: plan.language,
           geography: project.market,
           session_state: { fresh_session: true, prior_context: false },
-          search_mode: 'provider_web_grounding',
+          search_mode: provider === 'anthropic' ? 'firecrawl_search_grounding' : 'provider_web_grounding',
           run_status: 'error',
           retrieval_status: 'unknown',
           raw_answer: null,
