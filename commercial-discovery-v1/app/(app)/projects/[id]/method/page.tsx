@@ -17,6 +17,7 @@ export default async function MethodPage({ params }: { params: Promise<{ id: str
     { data: surfaces },
     { data: observations },
     { data: sources },
+    { data: usageEvents },
   ] = await Promise.all([
     supabase.from('projects').select('name,domain,market,primary_language,enabled_languages,provider_mode,status').eq('id', id).single(),
     supabase.from('company_profile_versions').select('version,status,approved_at').eq('project_id', id).eq('is_current', true).maybeSingle(),
@@ -26,6 +27,7 @@ export default async function MethodPage({ params }: { params: Promise<{ id: str
     supabase.from('benchmark_surfaces').select('id,benchmark_id,provider,surface,model_label,status,expected_runs,captured_runs,error_runs,metadata').eq('project_id', id).order('created_at'),
     supabase.from('observation_runs').select('id,benchmark_id,provider,surface,run_status,retrieval_status,language,metadata').eq('project_id', id),
     supabase.from('research_sources').select('id,source_type,captured_at').eq('project_id', id),
+    supabase.from('ai_usage_events').select('stage,model,service_tier,input_tokens,cached_input_tokens,cache_write_tokens,output_tokens,reasoning_tokens,web_search_calls,estimated_total_cost_usd,created_at').eq('project_id', id).order('created_at'),
   ])
 
   const approvedIntents = intents?.filter((intent) => intent.status === 'approved').length ?? 0
@@ -39,6 +41,19 @@ export default async function MethodPage({ params }: { params: Promise<{ id: str
   const latestBenchmark = benchmarks?.[0]
   const latestConfig = record(latestBenchmark?.collection_config)
   const latestSurfaces = latestBenchmark ? (surfaces ?? []).filter((surface) => surface.benchmark_id === latestBenchmark.id) : []
+  const measuredCost = (usageEvents ?? []).reduce((sum, event) => sum + Number(event.estimated_total_cost_usd || 0), 0)
+  const measuredInputTokens = (usageEvents ?? []).reduce((sum, event) => sum + Number(event.input_tokens || 0), 0)
+  const measuredCachedTokens = (usageEvents ?? []).reduce((sum, event) => sum + Number(event.cached_input_tokens || 0), 0)
+  const measuredOutputTokens = (usageEvents ?? []).reduce((sum, event) => sum + Number(event.output_tokens || 0), 0)
+  const measuredSearchCalls = (usageEvents ?? []).reduce((sum, event) => sum + Number(event.web_search_calls || 0), 0)
+  const usageByStage = new Map<string, { calls: number; cost: number }>()
+  for (const event of usageEvents ?? []) {
+    const current = usageByStage.get(event.stage) ?? { calls: 0, cost: 0 }
+    current.calls++
+    current.cost += Number(event.estimated_total_cost_usd || 0)
+    usageByStage.set(event.stage, current)
+  }
+  const usageStages = Array.from(usageByStage.entries()).sort((a, b) => b[1].cost - a[1].cost)
 
   return (
     <div className="project-page method-page">
@@ -141,6 +156,56 @@ export default async function MethodPage({ params }: { params: Promise<{ id: str
             <div><strong>{retrieved}</strong><span>captured retrievals</span></div>
             <div><strong>{nr}</strong><span>captured NR observations</span></div>
           </div>
+        </div>
+      </section>
+
+      <section className="method-chapter">
+        <div className="method-chapter-number">05</div>
+        <div>
+          <div className="eyebrow">AI COST TELEMETRY</div>
+          <h2>Measured provider usage for this project.</h2>
+          <p className="method-muted">This ledger records OpenAI token and tool usage from calls made after cost telemetry was enabled. It is separate from safety counters and does not retroactively reconstruct older spend.</p>
+          <div className="method-facts">
+            <div><span>Measured OpenAI cost</span><strong>{usageEvents?.length ? '
+        <div className="eyebrow">INTERPRETATION BOUNDARY</div>
+        <h2>Model output is evidence about model behavior — not ground truth about the company.</h2>
+        <p>Capabilities, certifications, client claims and service coverage require source verification. WHY findings are evidence-bounded interpretations and Blueprints must keep unverified claims visibly unresolved.</p>
+      </section>
+    </div>
+  )
+}
+ + measuredCost.toFixed(4) : 'Not measured yet'}</strong></div>
+            <div><span>API calls logged</span><strong>{usageEvents?.length ?? 0}</strong></div>
+            <div><span>Input tokens</span><strong>{measuredInputTokens.toLocaleString()}</strong></div>
+            <div><span>Cached input</span><strong>{measuredCachedTokens.toLocaleString()}</strong></div>
+            <div><span>Output tokens</span><strong>{measuredOutputTokens.toLocaleString()}</strong></div>
+            <div><span>Web-search calls</span><strong>{measuredSearchCalls}</strong></div>
+          </div>
+          {!!usageStages.length && (
+            <div className="method-surface-list">
+              {usageStages.map(([stage, usage]) => (
+                <article key={stage}>
+                  <div>
+                    <span>OpenAI stage</span>
+                    <strong>{stage.replaceAll('_', ' ')}</strong>
+                    <small>{usage.calls} logged call{usage.calls === 1 ? '' : 's'}</small>
+                  </div>
+                  <div>
+                    <strong>{'
+        <div className="eyebrow">INTERPRETATION BOUNDARY</div>
+        <h2>Model output is evidence about model behavior — not ground truth about the company.</h2>
+        <p>Capabilities, certifications, client claims and service coverage require source verification. WHY findings are evidence-bounded interpretations and Blueprints must keep unverified claims visibly unresolved.</p>
+      </section>
+    </div>
+  )
+}
+ + usage.cost.toFixed(4)}</strong>
+                    <small>estimated from recorded tokens + tool calls</small>
+                  </div>
+                </article>
+              ))}
+            </div>
+          )}
         </div>
       </section>
 
