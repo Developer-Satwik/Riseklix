@@ -123,6 +123,24 @@ for (const worker of trustedWorkerFunctions) {
   )
 }
 
+
+const autoRunner = trustedWorkerFunctions.find((item) => item.name === 'auto-analysis-runner').source
+requireText(
+  autoRunner,
+  "throw new Error('Autopilot state update failed: ' + error.message)",
+  'Autopilot state writes must fail loudly instead of returning progress that was never persisted.',
+)
+requireText(
+  autoRunner,
+  "const metadata = Object.keys(extra).length",
+  'Autopilot response-only release details must be persisted inside metadata.',
+)
+forbidText(
+  autoRunner,
+  "updateRun({ stage, progress, lease_until: null, ...extra })",
+  'Autopilot release details must never be spread into database columns.',
+)
+
 for (const name of [
   'intent-suggestor',
   'competitor-discovery',
