@@ -23,6 +23,13 @@ const recheckPage = read('app/(app)/projects/[id]/recheck/page.tsx')
 const recheckActions = read('app/(app)/projects/[id]/recheck/actions.ts')
 const watchdog = read('supabase/functions/autopilot-watchdog/index.ts')
 const watchdogMigration = read('supabase/migrations/0025_schedule_autopilot_watchdog.sql')
+const promptGenerator = read('supabase/functions/prompt-expression-generator/index.ts')
+const autopilot = read('supabase/functions/auto-analysis-runner/index.ts')
+const testActions = read('app/(app)/projects/[id]/test/actions.ts')
+const recheckActionsSource = read('app/(app)/projects/[id]/recheck/actions.ts')
+const promptReviewActions = read('app/(app)/projects/[id]/buyer-situations/prompt-actions.ts')
+const appPromptEligibility = read('lib/prompt-eligibility.ts')
+const edgePromptEligibility = read('supabase/functions/_shared/prompt-eligibility.ts')
 
 requireText(
   report,
@@ -101,6 +108,46 @@ forbidText(
   'Watchdog migrations must not hard-fail fresh environments that have not configured project_url yet.',
 )
 
+
+
+if (appPromptEligibility !== edgePromptEligibility) {
+  throw new Error('Methodology invariant failed: app and edge prompt-eligibility rules must stay identical.')
+}
+requireText(
+  promptGenerator,
+  "isUnaidedRetrievalEligible(item.prompt_text)",
+  'Generated unaided questions must pass retrieval-eligibility validation before storage.',
+)
+requireText(
+  promptGenerator,
+  "criteria-only question",
+  'Prompt generation instructions must explicitly reject criteria-only unaided questions.',
+)
+requireText(
+  autopilot,
+  "prompt.mode !== 'unaided' || isUnaidedRetrievalEligible(prompt.prompt_text)",
+  'Autopilot must exclude informational unaided prompts before building the benchmark.',
+)
+requireText(
+  testActions,
+  "expression.mode !== 'unaided' || isUnaidedRetrievalEligible(expression.prompt_text)",
+  'Manual test baseline creation must exclude informational unaided prompts.',
+)
+requireText(
+  recheckActionsSource,
+  "expression.mode !== 'unaided' || isUnaidedRetrievalEligible(expression.prompt_text)",
+  'Legacy baseline creation must exclude informational unaided prompts.',
+)
+requireText(
+  promptReviewActions,
+  "status === 'approved' && prompt.mode === 'unaided' && !isUnaidedRetrievalEligible(prompt.prompt_text)",
+  'Manual prompt approval must reject informational unaided questions before they can enter a future benchmark.',
+)
+requireText(
+  appPromptEligibility,
+  "informational_or_criteria_only",
+  'Prompt eligibility must distinguish criteria/advice questions from retrieval questions.',
+)
 
 const trustedWorkerFunctions = [
   'auto-analysis-runner',
