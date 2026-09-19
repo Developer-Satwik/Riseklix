@@ -51,7 +51,7 @@ const handler = {
 
     const [{ data: project }, { data: benchmark }, { data: activeJob }] = await Promise.all([
       ctx.supabase.from('projects').select('id,workspace_id,analysis_mode').eq('id', projectId).single(),
-      ctx.supabase.from('benchmarks').select('id,status,collection_config').eq('id', benchmarkId).eq('project_id', projectId).single(),
+      ctx.supabase.from('benchmarks').select('id,status,benchmark_type,collection_config').eq('id', benchmarkId).eq('project_id', projectId).single(),
       ctx.supabase
         .from('research_jobs')
         .select('id,status,stage,progress,created_at')
@@ -149,19 +149,27 @@ const handler = {
 
             if (!response.ok || lastPayload.error) {
               error = String(lastPayload.message || lastPayload.error || ('HTTP ' + response.status))
-              const surface = configured.find((item) => item.provider === plan.provider)
-              if (surface) {
-                const failures = Number(record(surface.metadata).orchestration_failures || 0) + 1
-                await ctx.supabase.from('benchmark_surfaces').update({
-                  status: failures >= 2 ? 'failed' : surface.status,
-                  metadata: {
-                    ...record(surface.metadata),
-                    orchestration_failures: failures,
-                    last_error: error,
-                    last_error_at: new Date().toISOString(),
-                  },
-                  updated_at: new Date().toISOString(),
-                }).eq('id', surface.id)
+              const softBudgetPause = response.status === 429
+                && ['observation_budget_exceeded', 'ai_budget_exceeded'].includes(String(lastPayload.error || ''))
+
+              // Workspace safety limits are not provider failures. Leave the
+              // surface runnable so a later collection pass can continue after
+              // the minute/day budget resets.
+              if (!softBudgetPause) {
+                const surface = configured.find((item) => item.provider === plan.provider)
+                if (surface) {
+                  const failures = Number(record(surface.metadata).orchestration_failures || 0) + 1
+                  await ctx.supabase.from('benchmark_surfaces').update({
+                    status: failures >= 2 ? 'failed' : surface.status,
+                    metadata: {
+                      ...record(surface.metadata),
+                      orchestration_failures: failures,
+                      last_error: error,
+                      last_error_at: new Date().toISOString(),
+                    },
+                    updated_at: new Date().toISOString(),
+                  }).eq('id', surface.id)
+                }
               }
               break
             }
@@ -285,14 +293,16 @@ const handler = {
       // In Autopilot, observation completion is not analysis completion: the WHY
       // layer still needs to finish before the project can be marked complete.
       // Manual mode keeps the legacy benchmark-complete project state.
-      if (complete && project.analysis_mode !== 'autopilot') {
+      if (complete && (project.analysis_mode !== 'autopilot' || benchmark.benchmark_type === 'recheck')) {
         await ctx.supabase.from('projects').update({
           status: 'complete',
           updated_at: new Date().toISOString(),
         }).eq('id', project.id)
       }
 
-      await continueAutopilot(req, project.id)
+      if (project.analysis_mode === 'autopilot' && benchmark.benchmark_type === 'baseline') {
+        await continueAutopilot(req, project.id)
+      }
     })().catch(async (error) => {
       const message = error instanceof Error ? error.message : 'Unknown multi-surface observation error'
       await ctx.supabase.from('research_jobs').update({
