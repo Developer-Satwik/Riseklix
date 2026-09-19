@@ -4,7 +4,7 @@ declare const EdgeRuntime: { waitUntil(promise: Promise<unknown>): void }
 
 type RequestBody = { project_id?: string; benchmark_id?: string }
 
-const MIN_USABLE_PROVIDERS = 2
+const MIN_USABLE_PROVIDERS = 3
 
 async function continueAutopilot(req: Request, projectId: string) {
   const authHeader = req.headers.get('Authorization')
