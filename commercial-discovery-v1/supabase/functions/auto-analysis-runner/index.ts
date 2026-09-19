@@ -7,6 +7,7 @@ const AUTOPILOT_REPETITIONS = 2
 const AUTOPILOT_PROMPT_LIMIT = 12
 const MAX_STAGE_FAILURES = 2
 const LEASE_SECONDS = 75
+const MIN_USABLE_PROVIDERS = 2
 
 function json(data: unknown, status = 200) {
   return Response.json(data, { status, headers: { 'Cache-Control': 'no-store' } })
@@ -691,7 +692,7 @@ const handler = {
         .eq('enabled', true)
 
       const declaredProviders = failedSurfaces ?? []
-      const minimumUsableProviders = declaredProviders.length >= 2 ? 2 : declaredProviders.length
+      const minimumUsableProviders = MIN_USABLE_PROVIDERS
       const usableProviders = declaredProviders.filter((surface) => {
         const expectedRuns = Number(surface.expected_runs || 0)
         const capturedRuns = Number(surface.captured_runs || 0)
