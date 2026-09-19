@@ -122,6 +122,7 @@ async function setIntentStatus(formData: FormData, status: 'approved' | 'rejecte
     status,
     approved_by: status === 'approved' ? userId : null,
     approved_at: approvedAt,
+    review_source: 'manual',
   }).eq('id', intent.id)
 
   if (error) redirect(`/projects/${parsed.data.project_id}/buyer-situations?error=${encodeURIComponent(error.message)}`)
