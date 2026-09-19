@@ -107,6 +107,7 @@ async function setPromptStatus(formData: FormData, status: 'approved' | 'rejecte
     status,
     approved_by: status === 'approved' ? userId : null,
     approved_at: status === 'approved' ? new Date().toISOString() : null,
+    review_source: 'manual',
   }).eq('id', prompt.id)
 
   if (error) redirect(`/projects/${parsed.data.project_id}/buyer-situations?error=${encodeURIComponent(error.message)}`)
