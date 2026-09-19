@@ -108,7 +108,7 @@ const handler = {
   fetch: withSupabase({ auth: ['user','secret'] }, async (req, ctx) => {
     if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405)
 
-    const db = ctx.authMode === 'user' ? db : ctx.supabaseAdmin
+    const db = ctx.authMode === 'user' ? ctx.supabase : ctx.supabaseAdmin
 
     let body: RequestBody
     try { body = await req.json() } catch { return json({ error: 'Invalid JSON body' }, 400) }
@@ -177,7 +177,8 @@ const handler = {
       }
     }
 
-    const budget = await db.rpc('consume_ai_budget', {
+    const budgetRpc = ctx.authMode === 'user' ? 'consume_ai_budget' : 'consume_ai_budget_internal'
+    const budget = await db.rpc(budgetRpc, {
       p_project_id: project.id,
       p_kind: 'reasoning',
       p_units: 1,
