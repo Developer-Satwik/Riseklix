@@ -1,5 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
-import { approveBlueprint, chooseExecutionRoute, generateBlueprint, updateImplementationTask } from './actions'
+import { approveBlueprint, chooseDiyMethod, chooseDiyTool, chooseExecutionRoute, generateBlueprint, updateImplementationTask } from './actions'
 import { PendingButton } from '@/components/pending-button'
 import { ResearchJobWatcher } from '@/components/research-job-watcher'
 
@@ -9,6 +9,26 @@ function record(value: unknown) {
 
 function array(value: unknown) {
   return Array.isArray(value) ? value : []
+}
+
+function strings(value: unknown) {
+  return array(value).filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+}
+
+function shortUrl(value: unknown) {
+  if (typeof value !== 'string' || !value) return ''
+  try {
+    const url = new URL(value)
+    return url.hostname.replace(/^www\./, '') + url.pathname.replace(/\/$/, '')
+  } catch {
+    return value
+  }
+}
+
+function Checklist({ items, ordered = false }: { items: string[]; ordered?: boolean }) {
+  if (!items.length) return <p className="spec-empty">Nothing additional required.</p>
+  const Tag = ordered ? 'ol' : 'ul'
+  return <Tag className={ordered ? 'spec-steps' : 'spec-checklist'}>{items.map((item, index) => <li key={index}>{item}</li>)}</Tag>
 }
 
 export default async function FixesPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<Record<string, string | string[] | undefined>> }) {
