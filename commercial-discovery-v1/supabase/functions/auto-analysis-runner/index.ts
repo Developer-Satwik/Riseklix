@@ -716,7 +716,7 @@ const handler = {
     const findingIntentIds = new Set((currentFindings ?? []).map((finding) => finding.buyer_intent_id).filter(Boolean))
 
     if (findingIntentIds.size < observedIntentIds.size) {
-      const state = await shouldWaitOrPause('evaluation', undefined, 'generating_why_analysis', 92)
+      const state = await shouldWaitOrPause('why_evaluation', undefined, 'generating_why_analysis', 92)
       if (state.response) return state.response
 
       try {
@@ -729,6 +729,23 @@ const handler = {
         })
         return await release('generating_why_analysis', 96, { benchmark_id: baseline.id })
       } catch (error) {
+        const jobs = await stageJobs('why_evaluation')
+        const active = jobs.find((job) => job.status === 'running' || job.status === 'queued')
+        if (active) {
+          return await release('generating_why_analysis', 94, {
+            waiting_on_job_id: active.id,
+            message: 'WHY analysis is still running in the background.',
+          })
+        }
+
+        const succeeded = jobs.find((job) => job.status === 'succeeded')
+        if (succeeded) {
+          return await release('generating_why_analysis', 96, {
+            completed_job_id: succeeded.id,
+            message: 'WHY analysis finished after the orchestration request timed out. Continuing from stored results.',
+          })
+        }
+
         return await pause('generating_why_analysis_paused', 92, error instanceof Error ? error.message : 'WHY analysis failed')
       }
     }
