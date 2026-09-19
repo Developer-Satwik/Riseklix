@@ -111,7 +111,6 @@ export function WorkspaceSidebar({
           <small>Workspace</small>
           <strong>{organization}</strong>
         </span>
-        <span className="sidebar-workspace-state" aria-hidden="true">Beta</span>
       </div>
 
       <div className="sidebar-section-label">Workspace</div>

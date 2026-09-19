@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit",
     "security:audit": "npm audit --audit-level=critical",
     "test:invariants": "node scripts/check-methodology-invariants.mjs",
-    "test:typography": "node scripts/check-typography-contract.mjs"
+    "test:typography": "node scripts/check-typography-contract.mjs",
+    "test:shell": "node scripts/check-shell-ui-contract.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "0.12.7",

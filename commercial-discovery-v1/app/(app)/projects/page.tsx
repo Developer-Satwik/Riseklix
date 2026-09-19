@@ -65,7 +65,7 @@ export default async function ProjectsPage({
           </section>
 
           <section className="project-list" aria-label="Projects">
-            <div className="project-list-head"><span>Company</span><span>Current stage</span><span>Updated</span><span /></div>
+            <div className="project-list-head"><span>Company</span><span>Current stage</span><span>Updated</span><span aria-hidden="true" /></div>
             {projects.map((project) => {
               const [stage, description] = stageCopy(project.status)
               const projectHref = project.analysis_mode === 'autopilot'
@@ -83,7 +83,6 @@ export default async function ProjectsPage({
                     </div>
                     <div className="project-list-stage"><strong>{stage}</strong><small>{description}</small></div>
                     <time>{new Date(project.updated_at).toLocaleDateString()}</time>
-                    <span className="project-list-arrow" aria-hidden="true">→</span>
                   </Link>
                   {ownerWorkspaceIds.has(project.workspace_id) && (
                     <div className="project-list-actions">

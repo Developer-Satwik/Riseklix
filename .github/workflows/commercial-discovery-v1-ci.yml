@@ -32,5 +32,6 @@ jobs:
       - run: npm run typecheck
       - run: npm run test:invariants
       - run: npm run test:typography
+      - run: npm run test:shell
       - run: npm run lint
       - run: npm run build

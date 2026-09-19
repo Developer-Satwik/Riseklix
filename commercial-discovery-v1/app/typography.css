@@ -23,7 +23,7 @@ html{-webkit-text-size-adjust:100%;text-size-adjust:100%}
 /* Application shell */
 .sidebar-product,.sidebar-section-label,.sidebar-research-note{font-size:var(--type-micro)!important}
 .sidebar-workspace-copy strong,.sidebar-workspace strong{font-size:var(--type-caption)!important}
-.sidebar-workspace-copy small,.sidebar-workspace span,.sidebar-workspace-state{font-size:var(--type-micro)!important}
+.sidebar-workspace-copy small{font-size:var(--type-micro)!important}
 .workspace-sidebar nav a{font-size:var(--type-secondary)!important}
 .sidebar-bottom small,.sidebar-bottom button{font-size:var(--type-caption)!important}
 .sidebar-user strong,.profile-trigger-copy strong{font-size:var(--type-caption)!important}
