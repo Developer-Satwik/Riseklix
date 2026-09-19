@@ -441,8 +441,10 @@ async function benchmarkCompletion(supabase: SupabaseClient, benchmarkId: string
 }
 
 const handler = {
-  fetch: withSupabase({ auth: 'user' }, async (req, ctx) => {
+  fetch: withSupabase({ auth: ['user','secret'] }, async (req, ctx) => {
     if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405)
+
+    const db = ctx.authMode === 'user' ? db : ctx.supabaseAdmin
 
     let body: RequestBody
     try { body = await req.json() } catch { return json({ error: 'Invalid JSON body' }, 400) }
@@ -480,9 +482,9 @@ const handler = {
     const observationModel = Deno.env.get(providerConfig.modelEnv) || providerConfig.defaultModel
 
     const [{ data: project }, { data: benchmark }, { data: profile }] = await Promise.all([
-      ctx.supabase.from('projects').select('id,workspace_id,name,market').eq('id', projectId).single(),
-      ctx.supabase.from('benchmarks').select('id,status,collection_config').eq('id', benchmarkId).eq('project_id', projectId).single(),
-      ctx.supabase.from('company_profile_versions').select('company_name').eq('project_id', projectId).eq('is_current', true).single(),
+      db.from('projects').select('id,workspace_id,name,market').eq('id', projectId).single(),
+      db.from('benchmarks').select('id,status,collection_config').eq('id', benchmarkId).eq('project_id', projectId).single(),
+      db.from('company_profile_versions').select('company_name').eq('project_id', projectId).eq('is_current', true).single(),
     ])
 
     if (!project || !benchmark || !profile) return json({ error: 'Project, benchmark or target company not found' }, 404)
@@ -491,14 +493,14 @@ const handler = {
     const config = record(benchmark.collection_config)
     const repetitions = Math.max(1, Math.min(Number(config.repetitions_per_expression ?? 3), 5))
 
-    const { data: members } = await ctx.supabase
+    const { data: members } = await db
       .from('benchmark_prompts')
       .select('buyer_intent_id,prompt_expression_id')
       .eq('benchmark_id', benchmark.id)
     if (!members?.length) return json({ error: 'benchmark_has_no_prompts' }, 409)
 
     const promptIds = members.map((member) => member.prompt_expression_id)
-    const { data: prompts } = await ctx.supabase
+    const { data: prompts } = await db
       .from('prompt_expressions')
       .select('id,buyer_intent_id,language,mode,prompt_text,status,is_frozen')
       .in('id', promptIds)
@@ -507,7 +509,7 @@ const handler = {
     const eligiblePrompts = prompts.filter((prompt) => prompt.status === 'approved' && prompt.is_frozen)
     const expected = eligiblePrompts.length * repetitions
 
-    const { data: surfaceConfig } = await ctx.supabase
+    const { data: surfaceConfig } = await db
       .from('benchmark_surfaces')
       .select('id,enabled,status')
       .eq('benchmark_id', benchmark.id)
@@ -518,7 +520,7 @@ const handler = {
     if (!surfaceConfig) return json({ error: 'surface_not_configured', message: `${providerConfig.displayName} is not configured on this benchmark.` }, 409)
     if (!surfaceConfig.enabled) return json({ error: 'surface_disabled', message: `${providerConfig.displayName} is disabled for this benchmark.` }, 409)
 
-    const { data: existingRuns } = await ctx.supabase
+    const { data: existingRuns } = await db
       .from('observation_runs')
       .select('prompt_expression_id,repetition,run_status')
       .eq('benchmark_id', benchmark.id)
@@ -545,7 +547,7 @@ const handler = {
 
     if (!planned.length) {
       const errors = (existingRuns ?? []).filter((run) => run.run_status === 'error').length
-      await ctx.supabase.from('benchmark_surfaces').update({
+      await db.from('benchmark_surfaces').update({
         model_label: observationModel,
         status: 'complete',
         expected_runs: expected,
@@ -554,13 +556,13 @@ const handler = {
         completed_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       }).eq('id', surfaceConfig.id)
-      const benchmarkComplete = await benchmarkCompletion(ctx.supabase, benchmark.id)
+      const benchmarkComplete = await benchmarkCompletion(db, benchmark.id)
       return json({ provider, surface_complete: true, benchmark_complete: benchmarkComplete, captured: completedKeys.size, expected, remaining: 0 })
     }
 
     const batch = planned.slice(0, maxRuns)
     const observationUnits = Math.max(1, batch.length * 2)
-    const budget = await ctx.supabase.rpc('consume_ai_budget', {
+    const budget = await db.rpc('consume_ai_budget', {
       p_project_id: project.id,
       p_kind: 'observation',
       p_units: observationUnits,
@@ -576,7 +578,7 @@ const handler = {
     }
 
     const userId = String(ctx.userClaims?.id ?? ctx.jwtClaims?.sub ?? '') || null
-    const { data: job, error: jobError } = await ctx.supabase.from('research_jobs').insert({
+    const { data: job, error: jobError } = await db.from('research_jobs').insert({
       workspace_id: project.workspace_id,
       project_id: project.id,
       created_by: userId,
@@ -592,8 +594,8 @@ const handler = {
     if (jobError || !job) return json({ error: jobError?.message ?? 'Could not start observation batch' }, 400)
 
     const now = new Date().toISOString()
-    await ctx.supabase.from('benchmarks').update({ status: 'running', started_at: now, completed_at: null }).eq('id', benchmark.id).eq('status', 'draft')
-    await ctx.supabase.from('benchmark_surfaces').update({
+    await db.from('benchmarks').update({ status: 'running', started_at: now, completed_at: null }).eq('id', benchmark.id).eq('status', 'draft')
+    await db.from('benchmark_surfaces').update({
       model_label: observationModel,
       status: 'running',
       expected_runs: expected,
@@ -609,7 +611,7 @@ const handler = {
 
     for (let index = 0; index < batch.length; index++) {
       const plan = batch[index]
-      const { data: competitors } = await ctx.supabase
+      const { data: competitors } = await db
         .from('competitor_candidates')
         .select('company_name')
         .eq('buyer_intent_id', plan.buyerIntentId)
@@ -641,7 +643,7 @@ const handler = {
       } catch (error) {
         failed++
         const message = error instanceof Error ? error.message : 'Unknown observation error'
-        await ctx.supabase.from('observation_runs').upsert({
+        await db.from('observation_runs').upsert({
           workspace_id: project.workspace_id,
           project_id: project.id,
           benchmark_id: benchmark.id,
@@ -667,7 +669,7 @@ const handler = {
         }, { onConflict: 'benchmark_id,prompt_expression_id,provider,surface,repetition' })
       }
 
-      await ctx.supabase.from('research_jobs').update({
+      await db.from('research_jobs').update({
         progress: Math.max(5, Math.round(((index + 1) / batch.length) * 70)),
         stage: `${provider}_observation_${index + 1}_of_${batch.length}`,
       }).eq('id', job.id)
@@ -685,7 +687,7 @@ const handler = {
 
       try {
         const batchExtraction = await extractBrandsBatch(openai, extractionModel, extractionItems, project.id)
-        await recordOpenAIUsage(ctx.supabase, batchExtraction.response, {
+        await recordOpenAIUsage(db, batchExtraction.response, {
           workspaceId: project.workspace_id,
           projectId: project.id,
           researchJobId: job.id,
@@ -718,7 +720,7 @@ const handler = {
             project.id,
           )
 
-          await recordOpenAIUsage(ctx.supabase, fallback.response, {
+          await recordOpenAIUsage(db, fallback.response, {
             workspaceId: project.workspace_id,
             projectId: project.id,
             researchJobId: job.id,
@@ -748,7 +750,7 @@ const handler = {
         }
       }
 
-      const { error: insertError } = await ctx.supabase.from('observation_runs').upsert({
+      const { error: insertError } = await db.from('observation_runs').upsert({
         workspace_id: project.workspace_id,
         project_id: project.id,
         benchmark_id: benchmark.id,
@@ -784,7 +786,7 @@ const handler = {
 
       if (insertError) {
         failed++
-        await ctx.supabase.from('observation_runs').upsert({
+        await db.from('observation_runs').upsert({
           workspace_id: project.workspace_id,
           project_id: project.id,
           benchmark_id: benchmark.id,
@@ -813,12 +815,12 @@ const handler = {
       }
     }
 
-    await ctx.supabase.from('research_jobs').update({
+    await db.from('research_jobs').update({
       progress: 90,
       stage: `${provider}_extraction_complete`,
     }).eq('id', job.id)
 
-    const { data: allRuns } = await ctx.supabase
+    const { data: allRuns } = await db
       .from('observation_runs')
       .select('prompt_expression_id,repetition,run_status')
       .eq('benchmark_id', benchmark.id)
@@ -830,7 +832,7 @@ const handler = {
     const surfaceComplete = capturedKeys.size >= expected
     const terminalFailure = !surfaceComplete && capturedKeys.size === 0 && errorRuns >= expected
 
-    await ctx.supabase.from('benchmark_surfaces').update({
+    await db.from('benchmark_surfaces').update({
       model_label: observationModel,
       status: surfaceComplete ? 'complete' : terminalFailure ? 'failed' : 'running',
       expected_runs: expected,
@@ -840,9 +842,9 @@ const handler = {
       updated_at: new Date().toISOString(),
     }).eq('id', surfaceConfig.id)
 
-    const benchmarkComplete = await benchmarkCompletion(ctx.supabase, benchmark.id)
+    const benchmarkComplete = await benchmarkCompletion(db, benchmark.id)
 
-    await ctx.supabase.from('research_jobs').update({
+    await db.from('research_jobs').update({
       status: failed && !captured ? 'failed' : 'succeeded',
       progress: 100,
       stage: surfaceComplete ? `${provider}_surface_complete` : `${provider}_observation_batch_complete`,
