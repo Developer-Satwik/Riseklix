@@ -1,6 +1,7 @@
 import { withSupabase } from 'npm:@supabase/server'
 import { isUnaidedRetrievalEligible } from '../_shared/prompt-eligibility.ts'
 import { intentDecisionFamily, selectAutopilotIntentPortfolio } from '../_shared/autopilot-intent-selection.ts'
+import { MIN_USABLE_PROVIDERS, configuredObservationProviders } from '../_shared/observation-provider-readiness.ts'
 
 type RequestBody = { project_id?: string }
 
@@ -9,7 +10,6 @@ const AUTOPILOT_REPETITIONS = 2
 const AUTOPILOT_PROMPT_LIMIT = 12
 const MAX_STAGE_FAILURES = 2
 const LEASE_SECONDS = 75
-const MIN_USABLE_PROVIDERS = 3
 
 function json(data: unknown, status = 200) {
   return Response.json(data, { status, headers: { 'Cache-Control': 'no-store' } })
@@ -21,8 +21,9 @@ function record(value: unknown) {
 
 function configuredSurfaces(project: { id: string; workspace_id: string }, benchmarkId: string, expectedRuns: number) {
   const surfaces: Array<Record<string, unknown>> = []
+  const configuredProviders = new Set(configuredObservationProviders())
 
-  if (Deno.env.get('OPENAI_API_KEY')) {
+  if (configuredProviders.has('openai')) {
     surfaces.push({
       workspace_id: project.workspace_id,
       project_id: project.id,
@@ -43,7 +44,7 @@ function configuredSurfaces(project: { id: string; workspace_id: string }, bench
     })
   }
 
-  if (Deno.env.get('GEMINI_API_KEY')) {
+  if (configuredProviders.has('google')) {
     surfaces.push({
       workspace_id: project.workspace_id,
       project_id: project.id,
@@ -64,7 +65,7 @@ function configuredSurfaces(project: { id: string; workspace_id: string }, bench
     })
   }
 
-  if (Deno.env.get('ANTHROPIC_API_KEY') && Deno.env.get('FIRECRAWL_API_KEY')) {
+  if (configuredProviders.has('anthropic')) {
     surfaces.push({
       workspace_id: project.workspace_id,
       project_id: project.id,
@@ -85,7 +86,7 @@ function configuredSurfaces(project: { id: string; workspace_id: string }, bench
     })
   }
 
-  if (Deno.env.get('PERPLEXITY_API_KEY')) {
+  if (configuredProviders.has('perplexity')) {
     surfaces.push({
       workspace_id: project.workspace_id,
       project_id: project.id,
@@ -623,8 +624,12 @@ const handler = {
       const expectedPerSurface = selected.length * AUTOPILOT_REPETITIONS
       const surfacePreview = configuredSurfaces(project, '00000000-0000-0000-0000-000000000000', expectedPerSurface)
 
-      if (!surfacePreview.length) {
-        return await pause('no_observation_provider', 70, 'No observation provider API key is configured. Add at least one supported provider key before Autopilot can test the questions.')
+      if (surfacePreview.length < MIN_USABLE_PROVIDERS) {
+        return await pause(
+          'insufficient_observation_providers',
+          70,
+          `Autopilot needs at least ${MIN_USABLE_PROVIDERS} configured AI systems before it can create a cross-model baseline. ${surfacePreview.length} ${surfacePreview.length === 1 ? 'is' : 'are'} configured.`,
+        )
       }
 
       const totalExpected = expectedPerSurface * surfacePreview.length
